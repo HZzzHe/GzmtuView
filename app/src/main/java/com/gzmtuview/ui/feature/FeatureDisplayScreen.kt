@@ -2,15 +2,8 @@ package com.gzmtuview.ui.feature
 
 import android.app.Activity
 import android.widget.Toast
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.MaterialTheme
@@ -27,9 +20,9 @@ import com.gzmtuview.GmuApplication
 import com.gzmtuview.ui.ScreenScaffold
 import com.gzmtuview.ui.schedule.SchedulePageCache
 import com.gzmtuview.widget.WidgetPusher
+import com.gzmtuview.ui.glass.FrostScrollPage
 import com.gzmtuview.ui.glass.GlassDialog
 import com.gzmtuview.ui.glass.GlassIconButton
-import com.gzmtuview.ui.glass.GlassTopBar
 import com.gzmtuview.ui.glass.Haptics
 import com.gzmtuview.ui.glass.LiquidGlassSwitch
 import com.gzmtuview.ui.settings.GroupDivider
@@ -52,6 +45,7 @@ fun FeatureDisplayScreen(
     val ctx = LocalContext.current
     var loaded by remember { mutableStateOf(false) }
     var showGridLines by remember { mutableStateOf(false) }
+    var showCourseCapsule by remember { mutableStateOf(true) }
     var showStudentName by remember { mutableStateOf(false) }
     var showTeacherName by remember { mutableStateOf(true) }
     var showExamCountdown by remember { mutableStateOf(true) }
@@ -66,6 +60,7 @@ fun FeatureDisplayScreen(
 
     LaunchedEffect(Unit) {
         showGridLines = app.store.loadShowGridLines()
+        showCourseCapsule = app.store.loadShowCourseCapsule()
         showStudentName = app.store.loadShowStudentName()
         showTeacherName = app.store.loadShowTeacherName()
         showExamCountdown = app.store.loadShowExamCountdown()
@@ -103,140 +98,144 @@ fun FeatureDisplayScreen(
         val pageBase = settingsPageBaseResolved()
         // 开关折射所在分组卡片纯色（近白/更亮一档），避免捕获层自采样
         val switchBackdrop = settingsCardBase()
-        Column(Modifier.fillMaxSize().background(pageBase)) {
-            GlassTopBar(
-                title = "功能",
-                backgroundColor = pageBase,
-                leading = {
-                    GlassIconButton(Icons.AutoMirrored.Filled.ArrowBack, "返回", onClick = onBack)
-                },
-            )
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-                    .verticalScroll(rememberScrollState())
-                    .padding(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 24.dp),
-            ) {
-                SectionLabel("体验")
-                SettingsGroup {
-                    ToggleRow(
-                        title = "课表显示课程定位辅助线",
-                        subtitle = "关闭后不显示课程之间的分界线",
-                        value = showGridLines,
-                        loaded = loaded,
-                        backdropColor = switchBackdrop,
-                        onChanged = {
-                            showGridLines = it
-                            app.store.saveShowGridLines(it)
-                        },
-                    )
-                    GroupDivider()
-                    ToggleRow(
-                        title = "课表显示学生姓名",
-                        subtitle = "关闭后课表页仅显示周次，不显示姓名",
-                        value = showStudentName,
-                        loaded = loaded,
-                        backdropColor = switchBackdrop,
-                        onChanged = {
-                            showStudentName = it
-                            app.store.saveShowStudentName(it)
-                        },
-                    )
-                    GroupDivider()
-                    ToggleRow(
-                        title = "课表显示任课老师姓名",
-                        subtitle = "关闭后课表仅显示课程名称和上课地点",
-                        value = showTeacherName,
-                        loaded = loaded,
-                        backdropColor = switchBackdrop,
-                        onChanged = {
-                            showTeacherName = it
-                            app.store.saveShowTeacherName(it)
-                        },
-                    )
-                    GroupDivider()
-                    ToggleRow(
-                        title = "显示考试倒计时",
-                        subtitle = "关闭后考试卡片不显示剩余时间",
-                        value = showExamCountdown,
-                        loaded = loaded,
-                        backdropColor = switchBackdrop,
-                        onChanged = {
-                            showExamCountdown = it
-                            app.store.saveShowExamCountdown(it)
-                        },
-                    )
-                    GroupDivider()
-                    ToggleRow(
-                        title = "显示周次步进器",
-                        subtitle = "关闭后课表右下角不显示切周步进器（仍可用页眉周次选择切周）",
-                        value = showWeekStepper,
-                        loaded = loaded,
-                        backdropColor = switchBackdrop,
-                        onChanged = {
-                            showWeekStepper = it
-                            app.store.saveShowWeekStepper(it)
-                        },
-                    )
-                    GroupDivider()
-                    ToggleRow(
-                        title = "交互触感",
-                        subtitle = "玻璃按钮与周次步进器按动、开关翻转、底部标签页切换、周次滑块跨档时给出轻微振动反馈（立即生效）",
-                        value = hapticFeedback,
-                        loaded = loaded,
-                        backdropColor = switchBackdrop,
-                        onChanged = {
-                            hapticFeedback = it
-                            app.store.saveHapticFeedback(it)
-                            // 写穿到全局触感通道：无需重启，下一次交互即生效
-                            Haptics.enabled = it
-                        },
-                    )
-                    GroupDivider()
-                    ToggleRow(
-                        title = "优先使用 https 通道",
-                        subtitle = "关闭后优先使用 http 通道，连接失败时自动降级到 https（需重启生效）",
-                        value = preferHttps,
-                        loaded = loaded,
-                        backdropColor = switchBackdrop,
-                        onChanged = {
-                            preferHttps = it
-                            app.store.savePreferHttps(it)
-                            restartPromptFor = "优先使用 https 通道"
-                            confirmDialog = true
-                        },
-                    )
-                }
-
-                Spacer(Modifier.height(28.dp))
-                SectionLabel("Beta")
-                SettingsGroup {
-                    ToggleRow(
-                        title = "节假日调休（Beta）",
-                        subtitle = "按官方放假与调休安排重排课表：放假日课程置灰，补班日显示被调走那天的课（需重启生效）",
-                        value = holidayAdjust,
-                        loaded = loaded,
-                        backdropColor = switchBackdrop,
-                        onChanged = {
-                            holidayAdjust = it
-                            app.store.saveHolidayAdjust(it)
-                            // 小部件按推送快照自行重排：立刻用页面缓存重推一次，
-                            // 不必等课表页重建（用户此刻很可能停在设置页）
-                            WidgetPusher.push(
-                                ctx,
-                                SchedulePageCache.coursesState.value,
-                                SchedulePageCache.weekDatesState.value,
-                                SchedulePageCache.courseColorIndexState.value,
-                                app.store.loadSkippedCourses(),
-                                it,
-                            )
-                            restartPromptFor = "节假日调休（Beta）"
-                            confirmDialog = true
-                        },
-                    )
-                }
+        FrostScrollPage(
+            title = "功能",
+            pageBase = pageBase,
+            leading = {
+                GlassIconButton(Icons.AutoMirrored.Filled.ArrowBack, "返回", onClick = onBack)
+            },
+        ) {
+            SectionLabel("体验")
+            SettingsGroup {
+                ToggleRow(
+                    title = "课表显示课程定位辅助线",
+                    subtitle = "关闭后不显示课程之间的分界线",
+                    value = showGridLines,
+                    loaded = loaded,
+                    backdropColor = switchBackdrop,
+                    onChanged = {
+                        showGridLines = it
+                        app.store.saveShowGridLines(it)
+                    },
+                )
+                GroupDivider()
+                ToggleRow(
+                    title = "课表显示课程胶囊",
+                    subtitle = "关闭后课程卡片顶部不显示小胶囊标记条（文字位置与排版不变）",
+                    value = showCourseCapsule,
+                    loaded = loaded,
+                    backdropColor = switchBackdrop,
+                    onChanged = {
+                        showCourseCapsule = it
+                        app.store.saveShowCourseCapsule(it)
+                    },
+                )
+                GroupDivider()
+                ToggleRow(
+                    title = "课表显示学生姓名",
+                    subtitle = "关闭后课表页仅显示周次，不显示姓名",
+                    value = showStudentName,
+                    loaded = loaded,
+                    backdropColor = switchBackdrop,
+                    onChanged = {
+                        showStudentName = it
+                        app.store.saveShowStudentName(it)
+                    },
+                )
+                GroupDivider()
+                ToggleRow(
+                    title = "课表显示任课老师姓名",
+                    subtitle = "关闭后课表仅显示课程名称和上课地点",
+                    value = showTeacherName,
+                    loaded = loaded,
+                    backdropColor = switchBackdrop,
+                    onChanged = {
+                        showTeacherName = it
+                        app.store.saveShowTeacherName(it)
+                    },
+                )
+                GroupDivider()
+                ToggleRow(
+                    title = "显示考试倒计时",
+                    subtitle = "关闭后考试卡片不显示剩余时间",
+                    value = showExamCountdown,
+                    loaded = loaded,
+                    backdropColor = switchBackdrop,
+                    onChanged = {
+                        showExamCountdown = it
+                        app.store.saveShowExamCountdown(it)
+                    },
+                )
+                GroupDivider()
+                ToggleRow(
+                    title = "显示周次步进器",
+                    subtitle = "关闭后课表右下角不显示切周步进器（仍可用页眉周次选择切周）",
+                    value = showWeekStepper,
+                    loaded = loaded,
+                    backdropColor = switchBackdrop,
+                    onChanged = {
+                        showWeekStepper = it
+                        app.store.saveShowWeekStepper(it)
+                    },
+                )
+                GroupDivider()
+                ToggleRow(
+                    title = "交互触感",
+                    subtitle = "玻璃按钮与周次步进器按动、开关翻转、底部标签页切换、周次滑块跨档时给出轻微振动反馈（立即生效）",
+                    value = hapticFeedback,
+                    loaded = loaded,
+                    backdropColor = switchBackdrop,
+                    onChanged = {
+                        hapticFeedback = it
+                        app.store.saveHapticFeedback(it)
+                        // 写穿到全局触感通道：无需重启，下一次交互即生效
+                        Haptics.enabled = it
+                    },
+                )
+                GroupDivider()
+                ToggleRow(
+                    title = "优先使用 https 通道",
+                    subtitle = "关闭后优先使用 http 通道，连接失败时自动降级到 https（需重启生效）",
+                    value = preferHttps,
+                    loaded = loaded,
+                    backdropColor = switchBackdrop,
+                    onChanged = {
+                        preferHttps = it
+                        app.store.savePreferHttps(it)
+                        restartPromptFor = "优先使用 https 通道"
+                        confirmDialog = true
+                    },
+                )
             }
+
+            Spacer(Modifier.height(28.dp))
+            SectionLabel("Beta")
+            SettingsGroup {
+                ToggleRow(
+                    title = "节假日调休（Beta）",
+                    subtitle = "按官方放假与调休安排重排课表：放假日课程置灰，补班日显示被调走那天的课（需重启生效）",
+                    value = holidayAdjust,
+                    loaded = loaded,
+                    backdropColor = switchBackdrop,
+                    onChanged = {
+                        holidayAdjust = it
+                        app.store.saveHolidayAdjust(it)
+                        // 小部件按推送快照自行重排：立刻用页面缓存重推一次，
+                        // 不必等课表页重建（用户此刻很可能停在设置页）
+                        WidgetPusher.push(
+                            ctx,
+                            SchedulePageCache.coursesState.value,
+                            SchedulePageCache.weekDatesState.value,
+                            SchedulePageCache.courseColorIndexState.value,
+                            app.store.loadSkippedCourses(),
+                            it,
+                        )
+                        restartPromptFor = "节假日调休（Beta）"
+                        confirmDialog = true
+                    },
+                )
+            }
+            Spacer(Modifier.height(24.dp))
         }
     }
 }

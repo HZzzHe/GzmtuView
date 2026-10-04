@@ -87,6 +87,8 @@ fun ScheduleGrid(
     currentWeekDates: List<LocalDate>? = null,
     showTeacherName: Boolean = true,
     showGridLines: Boolean = false,
+    /** 课程卡顶部的装饰胶囊条：false 只画文字与卡底，排版与文字位置不动 */
+    showCourseCapsule: Boolean = true,
     courseColorIndex: Map<String, Int>? = null,
     sectionCount: Int = 11,
     allowHorizontalScroll: Boolean = false,
@@ -307,6 +309,7 @@ fun ScheduleGrid(
                         barColor = colors.second,
                         textColor = colors.third,
                         showTeacherName = showTeacherName,
+                        showCourseCapsule = showCourseCapsule,
                         moved = p.moved,
                         dimmed = dimmed,
                         onDetail = { onCourseDetail?.invoke(c, cardDate) },
@@ -330,6 +333,7 @@ private fun CourseCard(
     barColor: Color,
     textColor: Color,
     showTeacherName: Boolean,
+    showCourseCapsule: Boolean = true,
     moved: Boolean = false,
     dimmed: Boolean = false,
     onDetail: () -> Unit = {},
@@ -434,16 +438,19 @@ private fun CourseCard(
                     .padding(horizontal = 2.dp, vertical = 2.dp),
             )
         }
-        // 胶囊标记条（顶部居中，纯装饰）
-        Box(
-            Modifier
-                .align(Alignment.TopCenter)
-                .offset(y = (if (roomy) 6f else if (mid) 2f else 1f).dp)
-                .width(barW.dp)
-                .height((if (roomy) 3f else 2f).dp)
-                .clip(RoundedCornerShape(999.dp))
-                .background(barColorDim)
-        )
+        // 胶囊标记条（顶部居中，纯装饰）：「课表显示课程胶囊」关掉就不画，
+        // 文字组是 fillMaxSize 居中的，所以少这条线不会让文字挪位
+        if (showCourseCapsule) {
+            Box(
+                Modifier
+                    .align(Alignment.TopCenter)
+                    .offset(y = (if (roomy) 6f else if (mid) 2f else 1f).dp)
+                    .width(barW.dp)
+                    .height((if (roomy) 3f else 2f).dp)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(barColorDim)
+            )
+        }
     }
 }
 

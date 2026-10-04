@@ -30,6 +30,7 @@ data class DisplayPrefs(
     val showStudentName: Boolean = false,
     val showTeacherName: Boolean = true,
     val showGridLines: Boolean = false,
+    val showCourseCapsule: Boolean = true,
     val showWeekStepper: Boolean = true,
     val showExamCountdown: Boolean = true,
 )
@@ -47,6 +48,7 @@ class SettingsStore(private val context: Context) : CredentialStore, SemesterCac
         val courseColorMap = stringPreferencesKey("course_color_map")
         val showStudentName = booleanPreferencesKey("show_student_name")
         val showGridLines = booleanPreferencesKey("show_grid_lines")
+        val showCourseCapsule = booleanPreferencesKey("show_course_capsule")
         val showTeacherName = booleanPreferencesKey("show_teacher_name")
         val showExamCountdown = booleanPreferencesKey("show_exam_countdown")
         val preferHttps = booleanPreferencesKey("prefer_https")
@@ -259,6 +261,10 @@ class SettingsStore(private val context: Context) : CredentialStore, SemesterCac
     fun loadShowGridLines(): Boolean = readBool(K.showGridLines, false)
     fun saveShowGridLines(value: Boolean) = writeBool(K.showGridLines, value)
 
+    /** 课程卡片顶部那条装饰胶囊。关掉只去胶囊，文字位置与卡片排版都不变。 */
+    fun loadShowCourseCapsule(): Boolean = readBool(K.showCourseCapsule, true)
+    fun saveShowCourseCapsule(value: Boolean) = writeBool(K.showCourseCapsule, value)
+
     fun loadShowWeekStepper(): Boolean = readBool(K.showWeekStepper, true)
     fun saveShowWeekStepper(value: Boolean) = writeBool(K.showWeekStepper, value)
 
@@ -271,6 +277,7 @@ class SettingsStore(private val context: Context) : CredentialStore, SemesterCac
             showStudentName = p[K.showStudentName] ?: false,
             showTeacherName = p[K.showTeacherName] ?: true,
             showGridLines = p[K.showGridLines] ?: false,
+            showCourseCapsule = p[K.showCourseCapsule] ?: true,
             showWeekStepper = p[K.showWeekStepper] ?: true,
             showExamCountdown = p[K.showExamCountdown] ?: true,
         )

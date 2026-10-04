@@ -195,12 +195,14 @@ fun ScheduleScreen(
     var showStudentName by remember { mutableStateOf(false) }
     var showTeacherName by remember { mutableStateOf(true) }
     var showGridLines by remember { mutableStateOf(false) }
+    var showCourseCapsule by remember { mutableStateOf(true) }
     var showWeekStepper by remember { mutableStateOf(true) }
     LaunchedEffect(Unit) {
         app.store.displayPrefsFlow().collect { p ->
             showStudentName = p.showStudentName
             showTeacherName = p.showTeacherName
             showGridLines = p.showGridLines
+            showCourseCapsule = p.showCourseCapsule
             showWeekStepper = p.showWeekStepper
         }
     }
@@ -859,6 +861,7 @@ fun ScheduleScreen(
                                             courses = courses,
                                             showTeacherName = showTeacherName,
                                             showGridLines = showGridLines,
+                                            showCourseCapsule = showCourseCapsule,
                                             courseColorIndex = courseColorIndex,
                                             skippedKeys = skippedKeys,
                                             onCourseDetail = { c, d -> detailCourse = c; detailDate = d },
@@ -871,6 +874,7 @@ fun ScheduleScreen(
                                             currentWeekDates = dates,
                                             showTeacherName = showTeacherName,
                                             showGridLines = showGridLines,
+                                            showCourseCapsule = showCourseCapsule,
                                             courseColorIndex = courseColorIndex,
                                             skippedKeys = skippedKeys,
                                             holidayAdjust = holidayAdjust,
