@@ -1,0 +1,29 @@
+# Gradle / Android
+.gradle/
+build/
+local.properties
+captures/
+.externalNativeBuild
+.cxx/
+*.apk
+*.aab
+
+# IDE
+.idea/
+*.iml
+.DS_Store
+
+# 本地生成物
+*.log
+.tmp_icon/
+
+# 正式签名密钥与密码（绝不入库）
+*.jks
+*.keystore
+release/
+
+# R8 mapping 归档（release 时本地留档，用于还原混淆栈）
+release/*.mapping.txt.gz
+
+# Kotlin 会话目录（AGP 9 / KGP 生成）
+.kotlin/

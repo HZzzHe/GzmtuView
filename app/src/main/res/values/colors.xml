@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 图标背景：航海蓝（与主题 seed 一致） -->
+    <color name="ic_launcher_background">#0061A4</color>
+    <!-- 小部件文字/竖线色（浅色） -->
+    <color name="widget_text_title">#1A1C1E</color>
+    <color name="widget_text_body">#1A1C1E</color>
+    <color name="widget_text_secondary">#42474E</color>
+
+    <!-- 小部件课程竖线浅色系：课表 30 色「条」色（浅色模式 HSL 公式），与课表页同色 -->
+    <color name="widget_bar_00">#A13E36</color>
+    <color name="widget_bar_01">#8E4929</color>
+    <color name="widget_bar_02">#A17036</color>
+    <color name="widget_bar_03">#8E7829</color>
+    <color name="widget_bar_04">#9FA136</color>
+    <color name="widget_bar_05">#758E29</color>
+    <color name="widget_bar_06">#6DA136</color>
+    <color name="widget_bar_07">#468E29</color>
+    <color name="widget_bar_08">#3DA136</color>
+    <color name="widget_bar_09">#298E38</color>
+    <color name="widget_bar_10">#36A15D</color>
+    <color name="widget_bar_11">#298E64</color>
+    <color name="widget_bar_12">#36A188</color>
+    <color name="widget_bar_13">#298E89</color>
+    <color name="widget_bar_14">#3692A1</color>
+    <color name="widget_bar_15">#296E8E</color>
+    <color name="widget_bar_16">#366BA1</color>
+    <color name="widget_bar_17">#29498E</color>
+    <color name="widget_bar_18">#3644A1</color>
+    <color name="widget_bar_19">#30298E</color>
+    <color name="widget_bar_20">#5236A1</color>
+    <color name="widget_bar_21">#58298E</color>
+    <color name="widget_bar_22">#7D36A1</color>
+    <color name="widget_bar_23">#81298E</color>
+    <color name="widget_bar_24">#A1369A</color>
+    <color name="widget_bar_25">#8E2973</color>
+    <color name="widget_bar_26">#A13672</color>
+    <color name="widget_bar_27">#8E2952</color>
+    <color name="widget_bar_28">#A1364F</color>
+    <color name="widget_bar_29">#8E2930</color>
+</resources>

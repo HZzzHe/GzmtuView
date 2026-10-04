@@ -1,0 +1,20 @@
+# 统一行尾：仓库内一律存 LF，签出也给 LF。
+# 不加这行时 Windows 上 core.autocrlf=true 会把 gradlew 签出成 CRLF，
+# 而同一份克隆在 Linux/macOS（autocrlf 默认 false）上就会以
+# 「/bin/sh: bad interpreter: /bin/bash^M」失败。
+* text=auto eol=lf
+
+# Windows 批处理必须是 CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# 二进制：禁止任何行尾/差异处理
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.gif binary
+*.jar binary
+*.aar binary
+*.keystore binary
+*.jks binary

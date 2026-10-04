@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 深色模式基础主题：窗口背景随系统变深，避免切页交叉期露出白色窗口底 -->
+    <style name="Theme.GmuView" parent="android:Theme.Material.NoActionBar" />
+</resources>

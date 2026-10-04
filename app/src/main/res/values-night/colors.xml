@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 小部件文字/竖线色（深色） -->
+    <color name="widget_text_title">#E0E2E9</color>
+    <color name="widget_text_body">#E0E2E9</color>
+    <color name="widget_text_secondary">#C3C6CF</color>
+
+    <!-- 小部件课程竖线深色系：课表 30 色「条」色（深色模式 HSL 公式），与课表页同色 -->
+    <color name="widget_bar_00">#CA7A72</color>
+    <color name="widget_bar_01">#D9A48C</color>
+    <color name="widget_bar_02">#CAA272</color>
+    <color name="widget_bar_03">#D9C88C</color>
+    <color name="widget_bar_04">#C8CA72</color>
+    <color name="widget_bar_05">#C6D98C</color>
+    <color name="widget_bar_06">#A0CA72</color>
+    <color name="widget_bar_07">#A2D98C</color>
+    <color name="widget_bar_08">#78CA72</color>
+    <color name="widget_bar_09">#8CD998</color>
+    <color name="widget_bar_10">#72CA92</color>
+    <color name="widget_bar_11">#8CD9B9</color>
+    <color name="widget_bar_12">#72CAB5</color>
+    <color name="widget_bar_13">#8CD9D5</color>
+    <color name="widget_bar_14">#72BECA</color>
+    <color name="widget_bar_15">#8CC1D9</color>
+    <color name="widget_bar_16">#729ECA</color>
+    <color name="widget_bar_17">#8CA4D9</color>
+    <color name="widget_bar_18">#727ECA</color>
+    <color name="widget_bar_19">#918CD9</color>
+    <color name="widget_bar_20">#8A72CA</color>
+    <color name="widget_bar_21">#B08CD9</color>
+    <color name="widget_bar_22">#AD72CA</color>
+    <color name="widget_bar_23">#CF8CD9</color>
+    <color name="widget_bar_24">#CA72C4</color>
+    <color name="widget_bar_25">#D98CC4</color>
+    <color name="widget_bar_26">#CA72A4</color>
+    <color name="widget_bar_27">#D98CAB</color>
+    <color name="widget_bar_28">#CA7287</color>
+    <color name="widget_bar_29">#D98C91</color>
+</resources>

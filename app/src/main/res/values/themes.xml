@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- GMU View 原生版主题：Compose 全权接管，仅保留透明系统栏基础主题 -->
+    <style name="Theme.GmuView" parent="android:Theme.Material.Light.NoActionBar" />
+</resources>
