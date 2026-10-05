@@ -1,10 +1,49 @@
 # GZMTU View
 
+[![Android CI](https://github.com/HZzzHe/GzmtuView/actions/workflows/android.yml/badge.svg)](https://github.com/HZzzHe/GzmtuView/actions/workflows/android.yml)
+
 原生 Android（Kotlin + Jetpack Compose）的高校课表客户端，对接正方教务系统 9.0（`jwglxt`）。
 课表 / 考试 / 成绩 / 体测 / 电费估算 / 桌面小部件，全套「液态玻璃」视觉。
 
+<table>
+  <tr>
+    <td width="25%"><img src="UI/img/schedule-week.png" alt="课表周视图"></td>
+    <td width="25%"><img src="UI/img/exams.png" alt="考试时间"></td>
+    <td width="25%"><img src="UI/img/grades.png" alt="成绩"></td>
+    <td width="25%"><img src="UI/img/course-detail.png" alt="课程详情"></td>
+  </tr>
+  <tr>
+    <td align="center">课表周视图<br>节假日调休重排：放假日置灰、补班日补上被调走那天的课</td>
+    <td align="center">考试<br>倒计时 + 场次 / 地点 / 座位号</td>
+    <td align="center">成绩<br>总学分与学分加权平均绩点</td>
+    <td align="center">课程详情<br>背板折射的磨砂玻璃对话框</td>
+  </tr>
+</table>
+
+> 截图里的课程、教师、学号、分数**全是编造的演示数据**，不含任何真实学籍信息；
+> 界面为浅色模式，深色模式跟随系统，同一套配色由种子色推导。
+
 > **免责声明**：本项目是个人练手作品，**与任何学校官方无关**，仅限学习与研究用途。
 > 使用后请自行遵守所在学校教务系统的使用规定；请勿用于高频抓取或任何自动化选退课。
+
+## 适用范围与已知限制
+
+先说清楚，省得你 clone 完才发现用不了：
+
+- **只验证过正方 9.0（`jwglxt`）移动版**。登录是「csrftoken → RSA 公钥 → PKCS#1 v1.5 加密 →
+  提交 → 索引页确认会话」这一套；换其它厂商（强智、青果、大雅、URP、学校自研）或正方的其它大版本，
+  要改 `ZFClient` 的请求路径与表单字段。数据类接口拿的是 JSON（字段名写死：`kcmc`/`xm`/`cdmc`/`zcd`…），
+  学期列表、开学日期与登录页表单是从 HTML 里正则刮出来的（`<input>`/`<select>` 的 id 与 value），
+  这两类里任何一处改版都要动代码。
+- **课表网格不做同一时段的并发处理**：卡片按整列铺满（宽 = 列宽 − 3dp），两节课撞在同一节次
+  会互相盖住。正方课表本身极少并发，真遇到再改 `ScheduleGrid` 的分栏/簇切换。
+- **没有单元测试**（`app/src` 下无 test/androidTest 目录），协议解析的回归全靠真机。
+  CI（`.github/workflows/android.yml`）只做两件事：校验 Gradle wrapper、跑一次 `assembleRelease`。
+  改 `ZFClient` 的解析逻辑前，先留一份自己学校的返回样本再动手。
+- **只出 `arm64-v8a`**，且 `minSdk 26`（Android 8.0）。要跑 x86 模拟器或更老的机器，
+  改 `app/build.gradle.kts` 的 `abiFilters`。
+- **单设备存储**：课表/考试/成绩是本机 JSON 缓存，无云同步、无多账号、无导出为 ICS。
+- 桌面小部件每小时刷新一次，不跟随课程表实时变化；调休开关改动需重启 App 生效。
 
 ## 克隆后必须先改的两处
 
@@ -86,6 +125,10 @@ release 默认走 **debug 签名**，所以没有 keystore 也能直接产出可
 ABI 只保留 `arm64-v8a`（真机目标）。需要其它架构就在
 `app/build.gradle.kts` 的 `ndk { abiFilters ... }` 里加。
 
+CI（`.github/workflows/android.yml`）跑的就是上面这条 `assembleRelease`：先校验 Gradle wrapper
+的 `jar` 校验和，再用 Temurin 21 + `platforms;android-37.0` / `build-tools;37.0.0` 构建，
+与开发机一致。它不签名发布，产物只作为 artifact 存 7 天。
+
 ## 代码结构
 
 ```
@@ -121,13 +164,35 @@ python gen_icons.py
 登录页横幅按版式限宽出 `640×282`，浅色版在光栅化时把淡蓝手写体压成品牌蓝
 （`#b8e2f5` 在浅色页面基色上只有 1.16:1，等于看不见），**设计母版原样不动**。
 `res/` 下的 PNG 都是产物，勿手改。
+`UI/img/` 是本 README 顶部那四张截图（纯展示资源，不参与构建；已去掉 EXIF、缩到 720px 宽，
+仅保留 ICC 描述文件）。
 
 ## 隐私
 
 - 账号密码只存本机（`EncryptedSharedPreferences` + 系统 Keystore），日志与崩溃信息不上传。
 - 教务数据缓存只在本机，**当天有效**，当日再次打开不重复访问教务系统。
 - 退出登录清凭据与缓存；「重新登录」只把你送回登录页，不清凭据、不清缓存。
-- 除你自己学校教务系统与 Open-Meteo（天气）之外，不发任何第三方网络请求；本仓库不含任何真实接口地址。
+- 网络出口只有三个，且都不上传任何个人数据：你自己学校的教务系统（登录时上传学号与密码密文）、
+  Open-Meteo（工具箱「电费估算」取日均气温，只发 `data/model` 里的**内置常量坐标** `kLat`/`kLon`，
+  不读设备定位）、`api.github.com`（**仅当** `ProjectRepo.SLUG` 被填上时，设置页「检查更新」
+  才发这一个 GET；留空时 `fetchLatest()` 直接返回 null）。
+  本仓库不含任何真实接口地址，`SLUG` 出厂留空 → 默认一个第三方请求都不会发。
+
+## 贡献与反馈
+
+- 开 issue 请用 `.github/ISSUE_TEMPLATE/` 里的两张表单：**问题反馈**（要版本、机型、复现步骤、
+  出现频率）和**功能请求**（要说清痛点，不是「加个按钮」）。字段是按这个项目的实际情况定的，
+  少一项就得来回追问。**自由开 issue 已关闭**，安全类问题请走下一节。
+- 改完至少跑一次 `./gradlew assembleRelease`（release 过 R8，能顺带暴露裁剪与反射问题）。
+  CI 会替你跑同一件事：`gradle/actions/wrapper-validation` + `assembleRelease`，
+  产物作为 artifact 存 7 天（**debug 签名，只能试装，不是发布物**）。
+  但 CI **不含任何测试**，「编译通过 + 真机能跑」就是当前的全部门槛。
+- 涉及 `ZFClient` 协议或 HTML 解析的改动，请附**脱敏后**的返回样本（学号、姓名、课程名换成占位串），
+  否则在别人手里没有你学校账号的情况下无法复现。
+- 不接受与选课 / 抢课自动化相关的功能请求——那对学校其它同学不公平，也是本项目免责声明里
+  明确排除的用途。改课表展示、加视觉与体验开关都很欢迎。
+- 安全问题（凭据存储、日志泄露、明文传输、导出越权）按 [`SECURITY.md`](SECURITY.md) 走
+  **私有漏洞报告**，不要在公开 issue / PR / 评论里写复现细节；那份文件还列了哪些情况不算漏洞。
 
 ## 许可与第三方
 

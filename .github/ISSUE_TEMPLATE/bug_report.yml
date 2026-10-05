@@ -1,0 +1,121 @@
+name: 问题反馈
+description: 课表显示、同步登录、导出或小部件出了可复现的毛病
+title: "[bug] "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        谢谢你来反馈，填写前先看两句：
+
+        - **公开 issue 所有人都能看到，而本 App 经手的是你的学籍数据。** 日志、截图里的学号、
+          姓名、课程名、成绩、`JSESSIONID` / Cookie、教务系统域名请先换成占位串或打码。
+        - **安全问题（凭据存储、日志泄露、明文传输等）不要在这里报**，按仓库根目录的
+          `SECURITY.md`（仓库 Security 页的「Reporting policy」）走私有漏洞报告。
+        - 本项目**只验证过正方 9.0（`jwglxt`）移动版**。换成强智 / 青果 / 大雅 / 自研系统后
+          登录失败或解析不出数据属于「未适配」，请走功能请求而不是这里。
+  - type: checkboxes
+    id: precheck
+    attributes:
+      label: 提交前确认
+      options:
+        - label: 我已搜索过现有 issue，这个问题没人提过
+          required: true
+        - label: 我贴出的日志与截图已脱敏
+          required: true
+        - label: 我已按 README「克隆后必须先改的两处」配置过教务系统地址，不是地址占位值导致的失败
+          required: true
+        - label: 我在 `main` 最新提交或最新 Release 上仍然能复现
+          required: false
+  - type: dropdown
+    id: area
+    attributes:
+      label: 出问题的位置
+      description: 只列得清一个就选一个，多个都中招可以后面补充
+      options:
+        - 登录与会话
+        - 课表（周视图 / 日视图 / 节次网格）
+        - 周次定位与节假日调休
+        - 课程详情 / 课程胶囊
+        - 考试
+        - 成绩
+        - 体测成绩计算
+        - 电费估算
+        - 桌面小部件
+        - 设置与个性化（壁纸、压暗、模糊、触感）
+        - CSV 导出与分享
+        - 构建与打包
+        - 其它 / 说不清
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: App 版本与 commit
+      description: 设置页底部有版本号；自己构建的请再给 `git rev-parse --short HEAD`
+      placeholder: "0.1.0 / a1b2c3d"
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: 机型与系统
+      placeholder: "小米 13 / HyperOS 3（Android 15）"
+    validations:
+      required: true
+  - type: dropdown
+    id: frequency
+    attributes:
+      label: 出现频率
+      options:
+        - 每次必现
+        - 多数时候（说一下比例）
+        - 偶发，没规律
+        - 只出现过一次
+        - 只在某种网络下（校园网 / 蜂窝 / 代理）
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 复现步骤
+      description: 从冷启动写起，一步一行。能附上「哪一步开始不对」就够了，不用分析原因。
+      placeholder: |
+        1. 打开 App，进入课表页
+        2. 长按周次步进器，跳到第 12 周
+        3. 网格右侧一天的列空白
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望表现 vs 实际表现
+      placeholder: |
+        期望：第 12 周有课的四列正常显示课程卡片。
+        实际：周五整列空白，但同周的周三正常。
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志 / 崩溃栈
+      description: |
+        `adb logcat` 里过滤本 App 的行即可。**贴之前把真实信息换成占位串。**
+        没有日志就留空，别为了凑内容贴整屏 logcat。
+      render: bash
+      placeholder: |
+        java.lang.IllegalStateException: ...
+    validations:
+      required: false
+  - type: textarea
+    id: extra
+    attributes:
+      label: 补充信息
+      description: |
+        截图直接把图片拖进这个框就能上传（拖之前记得打码）。
+        与教务系统改版有关的，请一并说明你学校系统的大致版本或入口名（不用给域名）。
+      placeholder: |
+        关掉「节假日调休」开关后不复现；深色模式下更明显。
+    validations:
+      required: false

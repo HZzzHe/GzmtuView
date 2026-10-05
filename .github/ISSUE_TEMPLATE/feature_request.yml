@@ -1,0 +1,95 @@
+name: 功能请求
+description: 想加的显示、体验、适配或导出能力
+title: "[feat] "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        这个项目是个人练手，维护节奏是「有需求且实现不难才做」，所以：
+
+        - **不接受选课 / 抢课 / 批量退课相关功能**，无论是否自称「只是提醒」。
+          这类自动化对学校其它同学不公平，也是 README 免责声明里明确排除的用途 —— 会被直接关闭。
+        - 也不做需要绕过学校访问限制（验证码、限流、高频抓取）的功能。
+        - 课表展示、视觉与体验开关、数据导出、适配其它教务系统，都很欢迎。
+  - type: checkboxes
+    id: precheck
+    attributes:
+      label: 提交前确认
+      options:
+        - label: 我已搜索过现有 issue 与 README「适用范围与已知限制」，没有被明确排除
+          required: true
+        - label: 本请求不含选课 / 抢课 / 批量退课自动化
+          required: true
+        - label: 描述里不含真实学号、姓名、课程名或教务系统域名
+          required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: 你想解决的问题
+      description: |
+        写「现在哪里不好用」而不是「加个按钮」。
+        一个具体场景比一串功能清单有用得多，也让我能判断有没有更省事的解法。
+      placeholder: |
+        每学期第一周我不确定哪年是第几周，现在只能靠翻日期猜，翻两三遍才对上。
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 期望的做法
+      description: 说清交互与显示细节即可；不用给实现方案，代码由我或来者决定。
+      placeholder: |
+        周次步进器长按弹出的跳转对话框里，每个周次后面跟一段日期区间（如「第 12 周 11/16–11/22」）。
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: 主要涉及
+      options:
+        - 课表网格与排布
+        - 周次定位与节假日调休
+        - 课程详情 / 课程胶囊
+        - 考试
+        - 成绩
+        - 体测成绩计算
+        - 电费估算
+        - 桌面小部件
+        - 登录与会话
+        - 设置与个性化（壁纸、压暗、模糊、触感）
+        - 数据导出与备份
+        - 视觉与玻璃效果
+        - 适配其它教务系统
+        - 构建、CI 或文档
+        - 其它
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 你想过的替代方案
+      description: 包括「用别的项目凑一下」也算，帮我把需求范围收窄。
+      placeholder: |
+        也可以只在今天有课时在小部件显示周次，但那样周中看不到全周安排。
+    validations:
+      required: false
+  - type: dropdown
+    id: contribute
+    attributes:
+      label: 你打算自己实现吗
+      description: 不是必须。愿意写 PR 的话，先在这条 issue 上说一声，免得两边撞车。
+      options:
+        - 愿意提 PR
+        - 可以帮忙在真机上验证
+        - 只能提需求，实现就麻烦别人了
+    validations:
+      required: true
+  - type: textarea
+    id: extra
+    attributes:
+      label: 补充
+      description: 参考截图、别家 App 的做法、相关 issue 编号都可以写这里。
+    validations:
+      required: false

@@ -1,0 +1,16 @@
+# 只用下面两张表单开 issue：本项目的信息字段（版本、机型、教务系统类型、复现步骤）
+# 缺一项就得来回追问，表单能一次问完。
+blank_issues_enabled: false
+
+contact_links:
+  - name: 报告安全问题
+    url: https://github.com/HZzzHe/GzmtuView/security/policy
+    about: 凭据存储、日志泄露、明文传输、导出越权等，请按 SECURITY.md 走私有漏洞报告，不要开公开 issue
+
+  - name: 配置与「装不上 / 登不进」
+    url: https://github.com/HZzzHe/GzmtuView/blob/main/README.md
+    about: 先读 README 的「克隆后必须先改的两处」和「适用范围与已知限制」，绝大多数失败是教务系统地址还留着占位值
+
+  - name: 许可与第三方致谢
+    url: https://github.com/HZzzHe/GzmtuView/blob/main/NOTICE
+    about: 液态玻璃组件派生自 Apache-2.0 的上游，许可文本在 third_party/，合规问题先看这里
