@@ -81,6 +81,7 @@ class ScheduleCache(private val context: Context) {
         weekDates: WeekDates? = null,
     ) = withContext(Dispatchers.IO) {
         try {
+            val file = File(dir(), fileName(semester))
             val json = JSONObject().apply {
                 put("fetchedAt", LocalDate.now().toString())
                 put("studentName", result.studentName)
@@ -88,9 +89,19 @@ class ScheduleCache(private val context: Context) {
                 put("courses", JSONArray().apply {
                     for (c in result.courses) put(c.toJson())
                 })
-                weekDates?.let { put("weekDates", WeekDates.toJson(it)) }
             }
-            File(dir(), fileName(semester)).writeText(json.toString())
+            if (weekDates != null) {
+                json.put("weekDates", WeekDates.toJson(weekDates))
+            } else {
+                // 本次没拿到周次日期（接口抖动/学期不匹配）：保留文件里上一份好值。
+                // 开学日是同学期内的常量，不能因为一次请求失败就从缓存里消失——
+                // 小部件正是靠它算「今天第几周」，丢了就只剩「打开 App 同步课表」。
+                runCatching {
+                    JSONObject(file.readText()).optJSONObject("weekDates")
+                        ?.let { json.put("weekDates", it) }
+                }
+            }
+            file.writeText(json.toString())
         } catch (_: Exception) {
             // 缓存写入失败不影响使用
         }

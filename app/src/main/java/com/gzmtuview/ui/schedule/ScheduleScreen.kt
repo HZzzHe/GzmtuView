@@ -122,6 +122,7 @@ import com.gzmtuview.data.model.Course
 import com.gzmtuview.data.model.HolidayAdjustCalendar
 import com.gzmtuview.data.model.Semester
 import com.gzmtuview.data.model.WeekDates
+import com.gzmtuview.data.model.usableFor
 import com.gzmtuview.data.net.ZFException
 import com.gzmtuview.ui.ScreenScaffold
 import com.gzmtuview.ui.sync.DailySync
@@ -273,6 +274,7 @@ fun ScheduleScreen(
     fun toast(msg: String) = Toast.makeText(ctx, msg, Toast.LENGTH_SHORT).show()
 
     suspend fun fetchAndApply(sem: Semester) {
+        val prevWd = app.cache.load(sem)?.weekDates
         val (result, wd) = coroutineScope {
             val r = async { app.client.fetchSchedule(sem) }
             val w = async { app.client.fetchWeekDates() }
@@ -284,7 +286,10 @@ fun ScheduleScreen(
             "fetchSchedule(${sem.label}) -> ${result.courses.size} 门: " +
                 result.courses.joinToString("/") { "${it.name}(周${it.dayOfWeek}第${it.sections.firstOrNull()}节)" },
         )
-        val matchWd = if (wd != null && wd.matches(sem)) wd else null
+        // 周次日期取失败/页面标着别的学期时沿用同学期上一份缓存：
+        // 一次请求抖动不能把开学日抹掉（小部件与自动定位都靠它）
+        val matchWd = wd.usableFor(sem, SchedulePageCache.semestersState.value.firstOrNull())
+            ?: prevWd
         app.cache.save(sem, result, matchWd)
         courses = result.courses
         studentName = result.studentName

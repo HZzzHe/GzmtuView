@@ -56,6 +56,19 @@ data class WeekDates(
     }
 }
 
+/**
+ * 这次从手机版时间表页取回的日期，能不能当作 [semester] 的日期用（null 直接不可用）：
+ * - 页面标注的学期一致 → 用；
+ * - 页面没带学期标识（正则没抓到 xnm/xqm）且 [semester] 就是当前学期 → 按当前学期页接受；
+ * - 明确标着别的学期 → 弃用（调用方回退到同学期的上一份缓存）。
+ */
+fun WeekDates?.usableFor(semester: Semester, current: Semester?): WeekDates? = when {
+    this == null -> null
+    matches(semester) -> this
+    xnm.isBlank() && xqm.isBlank() && semester == current -> this
+    else -> null
+}
+
 /** 课表查询结果。 */
 data class ScheduleResult(
     val courses: List<Course>,

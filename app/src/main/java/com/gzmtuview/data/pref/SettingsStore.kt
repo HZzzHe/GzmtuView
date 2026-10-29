@@ -60,6 +60,7 @@ class SettingsStore(private val context: Context) : CredentialStore, SemesterCac
         val wallpaperDim = floatPreferencesKey("wallpaper_dim")
         val wallpaperBlur = floatPreferencesKey("wallpaper_blur")
         val wallpaperGlobal = booleanPreferencesKey("wallpaper_global")
+        val lastSyncDay = stringPreferencesKey("last_sync_day")
     }
 
     /** 有效学期缓存有效期（毫秒）。 */
@@ -176,6 +177,20 @@ class SettingsStore(private val context: Context) : CredentialStore, SemesterCac
             })
         }
         runBlocking { update { it[K.validSemesters] = json.toString() } }
+    }
+
+    // ---- 每日合并同步的「今天这一趟已跑完」标记 ----
+
+    /**
+     * 只记录「今天这一趟合并同步已经跑完」，不冒充任何数据的新鲜度：
+     * 课表/考试/成绩的 `fetchedAt` 仍各自负责断点续传与变化比对。
+     * 不能拿三份缓存的 `fetchedAt` 当门控——考试/成绩接口失败是设计内的静默降级，
+     * 那两份缓存永远到不了「今天」，门控就永远不成立，表现为每次打开都重同步。
+     */
+    suspend fun loadLastSyncDay(): String? = prefs()[K.lastSyncDay]
+
+    suspend fun saveLastSyncDay(day: String) {
+        update { it[K.lastSyncDay] = day }
     }
 
     // ---- 课程颜色映射缓存 ----
