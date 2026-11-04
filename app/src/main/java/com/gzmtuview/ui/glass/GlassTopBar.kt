@@ -20,6 +20,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kyant.backdrop.Backdrop
@@ -51,6 +52,8 @@ fun GlassTopBar(
     // 各调用点的 trailing 均用尾随 lambda 语法传入
     /** 标题同行后缀（如课表"第 n 周"周次选择器）：紧跟标题右侧、垂直居中 */
     titleTrailing: (@Composable () -> Unit)? = null,
+    /** 右侧按钮距屏幕右缘的边距（默认 8dp；课表「更多」用 18dp，与系统相册的按钮位置对齐） */
+    trailingEndPadding: Dp = 8.dp,
     trailing: (@Composable () -> Unit)? = null,
 ) {
     val barBackdrop = rememberLayerBackdrop()
@@ -77,7 +80,8 @@ fun GlassTopBar(
                     .height(44.dp)
                     .padding(
                         start = titleStart,
-                        end = if (trailing != null) 56.dp else 16.dp,
+                        // 56 = 8dp 按钮边距 + 36dp 按钮 + 12dp 间隙；按钮外移时同步让位
+                        end = if (trailing != null) trailingEndPadding + 48.dp else 16.dp,
                     ),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -128,7 +132,7 @@ fun GlassTopBar(
                     Modifier
                         .align(Alignment.TopEnd)
                         .statusBarsPadding()
-                        .padding(top = 2.dp, end = 8.dp)
+                        .padding(top = 2.dp, end = trailingEndPadding)
                         .height(44.dp),
                     horizontalArrangement = Arrangement.End,
                     verticalAlignment = Alignment.CenterVertically,

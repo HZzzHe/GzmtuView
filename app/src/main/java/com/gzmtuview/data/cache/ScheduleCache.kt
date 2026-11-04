@@ -48,6 +48,21 @@ class ScheduleCache(private val context: Context) {
 
     private fun fileName(s: Semester) = "${s.xnm}_${s.xqm}.json"
 
+    /**
+     * 原子落盘：先写同名 `.tmp` 再 rename 覆盖。
+     * 直接 writeText 会在进程被杀时留下半截 JSON，下次启动读不出缓存，
+     * 课表页会掉进「全屏加载等同步」而不是缓存秒开（2026-11-04 真机确认）。
+     * rename 在同一目录内是原子的；失败时保留旧文件，不让缓存变空。
+     */
+    private fun writeAtomically(file: File, text: String) {
+        val tmp = File(file.parentFile, file.name + ".tmp")
+        tmp.writeText(text)
+        if (!tmp.renameTo(file)) {
+            tmp.delete()
+            throw java.io.IOException("rename failed: ${file.name}")
+        }
+    }
+
     /** 读取指定学期的缓存；无缓存或损坏返回 null。 */
     suspend fun load(semester: Semester): CachedSchedule? = withContext(Dispatchers.IO) {
         try {
@@ -101,7 +116,7 @@ class ScheduleCache(private val context: Context) {
                         ?.let { json.put("weekDates", it) }
                 }
             }
-            file.writeText(json.toString())
+            writeAtomically(file, json.toString())
         } catch (_: Exception) {
             // 缓存写入失败不影响使用
         }
@@ -140,7 +155,7 @@ class ScheduleCache(private val context: Context) {
     suspend fun loadCachedSemesters(): List<Semester> = withContext(Dispatchers.IO) {
         try {
             val sems = sortedSetOf<Semester>(compareByDescending { it.rank })
-            val re = Regex("""^(?:exams_|grades_)?(\d{4})_(\d{1,2})\.json$""")
+            val re = Regex("""^(?:exams_pc_|exams_|grades_)?(\d{4})_(\d{1,2})\.json$""")
             dir().listFiles()?.forEach { f ->
                 val m = re.find(f.name)
                 if (m != null) {
@@ -155,10 +170,12 @@ class ScheduleCache(private val context: Context) {
 
     // ---- 考试 / 成绩缓存（每学期独立文件） ----
 
+    // 前缀带 _pc：手机版考试模块下线前的 exams_*.json（含当天空结果）一律不再命中，
+    // 避免升级后当天仍被旧缓存挡住、看不到 PC 接口返回的考试。
     suspend fun loadExams(s: Semester): CachedItems<ExamRecord>? =
-        loadList(s, "exams") { ExamRecord.fromJson(it) }
+        loadList(s, "exams_pc") { ExamRecord.fromJson(it) }
 
-    suspend fun saveExams(s: Semester, items: List<ExamRecord>) = saveList(s, "exams", items) {
+    suspend fun saveExams(s: Semester, items: List<ExamRecord>) = saveList(s, "exams_pc", items) {
         it.toJson()
     }
 
@@ -191,7 +208,13 @@ class ScheduleCache(private val context: Context) {
     }
 
 
-    /** 带学期回退的加载（考试/成绩共用）。策略对齐 Flutter fetchWithFallback。 */
+    /**
+     * 带学期回退的加载（考试/成绩共用）。策略对齐 Flutter fetchWithFallback。
+     *
+     * [probeOlderOnEmpty]：当前学期取到空结果时，是否继续联网逐学期探测更早学期。
+     * 考试/成绩页传 false——更早学期只从磁盘缓存回退。否则本学期本来就没有考试时，
+     * 每次重开软件都要把整条回退链重新请求一遍（用户反馈的「重复拉取」）。
+     */
     suspend fun <T> fetchWithFallback(
         semesters: List<Semester>,
         initial: Semester,
@@ -199,6 +222,7 @@ class ScheduleCache(private val context: Context) {
         loadCache: suspend (Semester) -> CachedItems<T>?,
         saveCache: suspend (Semester, List<T>) -> Unit,
         forceRefresh: Boolean = false,
+        probeOlderOnEmpty: Boolean = true,
     ): FallbackResult<T> {
         var idx = semesters.indexOf(initial)
         if (idx < 0) idx = 0
@@ -208,7 +232,9 @@ class ScheduleCache(private val context: Context) {
         if (!forceRefresh) {
             val cached = loadCache(initial)
             if (cached != null && cached.items.isNotEmpty()) {
-                if (cached.fetchedAt == today) return FallbackResult(initial, cached.items)
+                if (cached.fetchedAt == today) {
+                    return FallbackResult(initial, cached.items)
+                }
                 return FallbackResult(initial, cached.items, stale = true)
             }
             // 当天空缓存：直接从其他学期缓存回退展示
@@ -243,6 +269,16 @@ class ScheduleCache(private val context: Context) {
                         items = items,
                         fallbackFrom = if (fallbackFrom == null) null else initial,
                     )
+                }
+                if (!probeOlderOnEmpty) {
+                    // 只联网问当前学期；空结果时从更早学期的磁盘缓存回退，不再逐级请求
+                    for (i in idx + 1 until semesters.size) {
+                        val c = loadCache(semesters[i])
+                        if (c != null && c.items.isNotEmpty()) {
+                            return FallbackResult(semesters[i], c.items, fallbackFrom = initial)
+                        }
+                    }
+                    return FallbackResult(initial, emptyList())
                 }
                 fallbackFrom = fallbackFrom ?: sem
                 idx++
@@ -279,7 +315,7 @@ class ScheduleCache(private val context: Context) {
                 put("fetchedAt", LocalDate.now().toString())
                 put("items", JSONArray().apply { for (it in items) put(toJson(it)) })
             }
-            File(dir(), "${kind}_${s.xnm}_${s.xqm}.json").writeText(json.toString())
+            writeAtomically(File(dir(), "${kind}_${s.xnm}_${s.xqm}.json"), json.toString())
         } catch (_: Exception) {
         }
     }

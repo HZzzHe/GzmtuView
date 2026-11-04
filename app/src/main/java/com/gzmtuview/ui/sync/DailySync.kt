@@ -50,9 +50,17 @@ object DailySync {
     val changed = mutableStateOf<List<String>>(emptyList())
 
     private var job: Job? = null
+    private var started = false
 
     /** 同步作业是否正在跑（考试页据此决定要不要自己再发一份请求） */
     val isRunning: Boolean get() = job?.isActive == true
+
+    /**
+     * 本进程是否已经启动过每日同步（跑完或正在跑）。
+     * 考试页据此判断要不要补一次 [start]：AppRoot 已经跑过且完成时，
+     * 再 start 会多出一个「今天已完成」的短作业，页面白等它一轮。
+     */
+    val hasStarted: Boolean get() = started
 
     /**
      * 当天首次打开时调用，幂等：作业在跑 / 今天已经跑完都直接返回。
@@ -60,6 +68,7 @@ object DailySync {
      */
     fun start(app: GmuApplication) {
         if (job?.isActive == true) return
+        started = true
         job = app.syncScope.launch {
             val today = LocalDate.now()
             val cachedFirst = app.cache.loadCachedSemesters().firstOrNull()
@@ -109,6 +118,7 @@ object DailySync {
     fun cancel() {
         job?.cancel()
         job = null
+        started = false
         phase.value = SyncPhase.Idle
         changed.value = emptyList()
     }
@@ -215,7 +225,9 @@ object DailySync {
         changes: MutableList<String>,
     ) {
         val cached = app.cache.loadExams(sem)
-        if (cached?.fetchedAt == today) return
+        if (cached?.fetchedAt == today) {
+            return
+        }
         // 考试/成绩是同一趟车上的顺路活：单个接口失败不打断同步，页面原有的回退兜底照旧
         val items = runCatching { app.client.fetchExams(sem) }.getOrNull() ?: return
         app.cache.saveExams(sem, items)
@@ -236,7 +248,9 @@ object DailySync {
         changes: MutableList<String>,
     ) {
         val cached = app.cache.loadGrades(sem)
-        if (cached?.fetchedAt == today) return
+        if (cached?.fetchedAt == today) {
+            return
+        }
         val items = runCatching { app.client.fetchGrades(sem) }.getOrNull() ?: return
         app.cache.saveGrades(sem, items)
         // 取到了就是"已就绪"（空成绩也是有效结果）：成绩 tab 不必再空转一圈

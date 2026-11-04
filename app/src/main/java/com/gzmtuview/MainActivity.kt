@@ -1,5 +1,6 @@
 package com.gzmtuview
 
+import com.gzmtuview.data.color.ensureCourseColorIndex
 import com.gzmtuview.ui.schedule.SchedulePageCache
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -28,6 +29,10 @@ class MainActivity : ComponentActivity() {
                         SchedulePageCache.coursesState.value = c.result.courses
                         SchedulePageCache.studentNameState.value = c.result.studentName
                         SchedulePageCache.weekDatesState.value = c.weekDates
+                        // 颜色映射必须一起预热：只搬课表不搬映射，首屏会先用课名哈希兜底色，
+                        // 等每日同步写回映射色时整页「换色」
+                        SchedulePageCache.courseColorIndexState.value =
+                            ensureCourseColorIndex(app.store, c.result.courses)
                         SchedulePageCache.loadedState.value = true
                         SchedulePageCache.loadingState.value = false
                     }

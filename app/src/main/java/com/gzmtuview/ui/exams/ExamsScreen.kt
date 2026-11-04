@@ -62,6 +62,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.gzmtuview.GmuApplication
@@ -75,10 +76,13 @@ import com.gzmtuview.data.model.parseExamStart
 import com.gzmtuview.data.net.ZFException
 import com.gzmtuview.ui.sync.DailySync
 import com.gzmtuview.ui.ScreenScaffold
+import com.gzmtuview.ui.glass.AnchoredGlassMenu
 import com.gzmtuview.ui.glass.GlassDialog
-import com.gzmtuview.ui.glass.GlassChoiceDropdown
 import com.gzmtuview.ui.glass.GlassIconButton
+import com.gzmtuview.ui.glass.GlassMenuDivider
+import com.gzmtuview.ui.glass.GlassMenuRow
 import com.gzmtuview.ui.glass.GlassTopBar
+import com.gzmtuview.ui.glass.SemesterPickerList
 import com.gzmtuview.ui.glass.TintedGlassButton
 import com.gzmtuview.ui.glass.progressiveBlur
 import com.gzmtuview.ui.settings.settingsPageBase
@@ -87,7 +91,9 @@ import com.gzmtuview.ui.theme.Seed
 import com.gzmtuview.ui.settings.settingsCardBase
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.time.LocalDate
 import java.time.LocalDateTime
 
 /**
@@ -114,6 +120,13 @@ internal object ExamPageCache {
 
     /** 数据就绪过一次：回切时 loading 初值据此置 false（只在组合初读一次，不必是状态） */
     var loaded: Boolean = false
+
+    /**
+     * 首轮加载已结算（成功或空结果都算，错误不算）：回切/重进页面不再重跑 initLoad。
+     * 旧实现只看「有没有数据」，本学期本来就没有考试时 loaded 永远为 false，
+     * 每次重开软件都会把整条回退链再请求一遍。
+     */
+    var initDone: Boolean = false
     var gradeSettled: Boolean = false
 
     /** 登出时清空 */
@@ -128,6 +141,7 @@ internal object ExamPageCache {
         gradesState.value = emptyList()
         gradeStatsState.value = GradeStats(0.0, 0.0)
         loaded = false
+        initDone = false
         gradeSettled = false
     }
 }
@@ -167,9 +181,9 @@ fun ExamsScreen(
         app.store.displayPrefsFlow().collect { showCountdown = it.showExamCountdown }
     }
     var tab by remember { mutableIntStateOf(0) }
-    var showSemesterDialog by remember { mutableStateOf(false) }
-    // 两步式：先在对话框内选学期（暂存），点「确认」才提交
-    var pendingSemester by remember { mutableStateOf<Semester?>(null) }
+    // 顶栏「选择学期」= 课表同款玻璃菜单：点学期即切换，不再走两步确认对话框
+    var semMenuOpen by remember { mutableStateOf(false) }
+    var semMenuClosing by remember { mutableStateOf(false) }
     var showRefreshConfirm by remember { mutableStateOf(false) }
     // 降级说明对话框（"回顾"按钮点击弹出）
     var showFallbackInfo by remember { mutableStateOf(false) }
@@ -205,9 +219,9 @@ fun ExamsScreen(
         }
     }
 
-    suspend fun loadExams(force: Boolean = false) {
+    suspend fun loadExams(force: Boolean = false, showLoading: Boolean = true) {
         val initial = picked ?: return
-        examLoading = true
+        if (showLoading || exams.isEmpty()) examLoading = true
         examError = null
         examFallback = null
         try {
@@ -218,12 +232,14 @@ fun ExamsScreen(
                 loadCache = { app.cache.loadExams(it) },
                 saveCache = { s, items -> app.cache.saveExams(s, items) },
                 forceRefresh = force,
+                // 本学期没有考试时只从磁盘回退更早学期，避免每次冷启动逐学期联网探测
+                probeOlderOnEmpty = false,
             )
             examSemester = r.semester
             exams = r.items
             examFallback = r.fallbackFrom
             examLoading = false
-            ExamPageCache.loaded = exams.isNotEmpty() || grades.isNotEmpty()
+            if (exams.isNotEmpty() || grades.isNotEmpty()) ExamPageCache.loaded = true
             // 跨天旧缓存才需要后台刷新；每日同步正在跑时让给它，别重复打服务器
             if (r.stale && !DailySync.isRunning) {
                 scope.launch { refreshExamsInBackground(r.semester) }
@@ -237,9 +253,9 @@ fun ExamsScreen(
         }
     }
 
-    suspend fun loadGrades(force: Boolean = false) {
+    suspend fun loadGrades(force: Boolean = false, showLoading: Boolean = true) {
         val initial = picked ?: return
-        gradeLoading = true
+        if (showLoading || grades.isEmpty()) gradeLoading = true
         gradeError = null
         gradeFallback = null
         try {
@@ -250,13 +266,14 @@ fun ExamsScreen(
                 loadCache = { app.cache.loadGrades(it) },
                 saveCache = { s, items -> app.cache.saveGrades(s, items) },
                 forceRefresh = force,
+                probeOlderOnEmpty = false,
             )
             gradeSemester = r.semester
             grades = r.items
             gradeStats = computeGradeStats(r.items)
             gradeFallback = r.fallbackFrom
             gradeLoading = false
-            ExamPageCache.loaded = exams.isNotEmpty() || grades.isNotEmpty()
+            if (exams.isNotEmpty() || grades.isNotEmpty()) ExamPageCache.loaded = true
             ExamPageCache.gradeSettled = true
             if (r.stale && !DailySync.isRunning) {
                 scope.launch { refreshGradesInBackground(r.semester) }
@@ -270,24 +287,105 @@ fun ExamsScreen(
         }
     }
 
-    suspend fun loadAll(force: Boolean = false) {
-        loadExams(force)
-        loadGrades(force)
+    suspend fun loadAll(force: Boolean = false, showLoading: Boolean = true) {
+        loadExams(force, showLoading)
+        loadGrades(force, showLoading)
+    }
+
+    /**
+     * 冷启动只读盘：先把缓存摆出来（当前学期没有就回退更早学期的非空缓存），
+     * 每日同步再慢都不该让整页转圈。全屏 loading 只留给「磁盘上确实没有任何数据」。
+     * 不碰 [ExamPageCache.loaded] / [ExamPageCache.gradeSettled]：同步写页面数据
+     * 的门控仍按原逻辑走，避免挡住后面新取到的当前学期数据。
+     */
+    suspend fun hydrateCachedExamData() {
+        val sems = semesters.ifEmpty { app.cache.loadCachedSemesters() }
+        if (sems.isEmpty()) return
+        semesters = sems
+        if (picked == null) picked = sems.first()
+        val initial = picked ?: return
+        val start = sems.indexOf(initial).let { if (it < 0) 0 else it }
+        val today = LocalDate.now()
+
+        if (exams.isEmpty()) {
+            val cached = app.cache.loadExams(initial)
+            if (cached != null && cached.items.isNotEmpty()) {
+                examSemester = initial
+                exams = cached.items
+                examFallback = null
+                examLoading = false
+            } else {
+                for (i in start + 1 until sems.size) {
+                    val c = app.cache.loadExams(sems[i]) ?: continue
+                    if (c.items.isNotEmpty()) {
+                        examSemester = sems[i]
+                        exams = c.items
+                        examFallback = initial
+                        examLoading = false
+                        break
+                    }
+                }
+                // 今天已确认过当前学期没有考试：空态也是有效结果，别一直转圈
+                if (exams.isEmpty() && examLoading && cached != null && cached.fetchedAt == today) {
+                    examSemester = initial
+                    examFallback = null
+                    examLoading = false
+                }
+            }
+        }
+
+        if (grades.isEmpty()) {
+            val cached = app.cache.loadGrades(initial)
+            if (cached != null && cached.items.isNotEmpty()) {
+                gradeSemester = initial
+                grades = cached.items
+                gradeStats = computeGradeStats(cached.items)
+                gradeFallback = null
+                gradeLoading = false
+            } else {
+                for (i in start + 1 until sems.size) {
+                    val c = app.cache.loadGrades(sems[i]) ?: continue
+                    if (c.items.isNotEmpty()) {
+                        gradeSemester = sems[i]
+                        grades = c.items
+                        gradeStats = computeGradeStats(c.items)
+                        gradeFallback = initial
+                        gradeLoading = false
+                        break
+                    }
+                }
+                if (grades.isEmpty() && gradeLoading && cached != null && cached.fetchedAt == today) {
+                    gradeSemester = initial
+                    gradeFallback = null
+                    gradeLoading = false
+                }
+            }
+        }
     }
 
     suspend fun initLoad() {
-        // 切页返回：数据已从页面缓存恢复，跳过重复网络加载
-        if (ExamPageCache.loaded) {
+        // 切页返回：首轮已结算，数据从页面缓存恢复，跳过重复网络加载
+        if (ExamPageCache.initDone) {
             examLoading = false
+            gradeLoading = false
             examError = null
+            gradeError = null
             return
         }
-        // 当天首次打开时考试/成绩由每日同步一并取回：它正在跑就等结果，
-        // 页面自己再发一份就是同一个学期打两次服务器
+        // 冷启动先读盘再等同步：学期列表缓存 3 天过期后，整趟同步可能十几秒，
+        // 不能让有缓存的考试/成绩页陪着全屏转圈（2026-11-04 用户反馈）
+        if (!ExamPageCache.loaded) hydrateCachedExamData()
+        // 冷启动可能直接恢复到考试页：AppRoot 的每日同步此时未必已被调度。
+        // 本进程还没启动过同步才补一次 start，避免本页和每日同步对同一学期各取一份
+        // 考试/成绩（用户反馈的「重开软件考试页重复触发拉取」）；
+        // 已跑完时不再 start，否则会多等一轮「今天已完成」的短作业。
+        if (!DailySync.hasStarted) DailySync.start(app)
         if (DailySync.isRunning) DailySync.awaitRunning()
-        if (ExamPageCache.loaded) {
+        if (ExamPageCache.initDone) {
             examLoading = false
+            gradeLoading = false
             examError = null
+            gradeError = null
             return
         }
         // 学期列表：优先用每日同步已拿到的，其次磁盘缓存学期，最后才联网
@@ -302,10 +400,21 @@ fun ExamsScreen(
             return
         }
         semesters = sems
-        picked = sems.first()
-        // fetchWithFallback 命中当天缓存时不联网，跨天缓存直接返回旧数据（stale 已在上文处理）
-        loadAll()
-        ExamPageCache.loaded = exams.isNotEmpty() || grades.isNotEmpty()
+        // 每日同步可能已写入数据但还没设 picked；选中项必须补齐，否则刷新/切学期没有基准
+        if (picked == null) picked = sems.first()
+        // 每日同步刚把当前学期的考试+成绩送进页面缓存：直接采用，别再落盘重读闪一帧 loading
+        if (ExamPageCache.loaded && ExamPageCache.gradeSettled) {
+            examLoading = false
+            gradeLoading = false
+            examError = null
+            gradeError = null
+            ExamPageCache.initDone = true
+            return
+        }
+        // fetchWithFallback 命中当天缓存时不联网；空结果也算结算，不因「没数据」反复重取。
+        // 已经读过盘并展示时不再翻回全屏 loading（同步刚结束，这轮通常只是读缓存）
+        loadAll(showLoading = false)
+        if (examError == null && gradeError == null) ExamPageCache.initDone = true
     }
 
     LaunchedEffect(Unit) { initLoad() }
@@ -319,12 +428,14 @@ fun ExamsScreen(
         }
     }
 
-    // 打开「选择学期」时把当前学期同步为暂存初值
-    LaunchedEffect(showSemesterDialog) {
-        if (showSemesterDialog) pendingSemester = picked
-    }
-
     val pageBase = settingsPageBase()
+
+    fun closeSemesterMenu() {
+        if (semMenuOpen) {
+            semMenuOpen = false
+            semMenuClosing = true
+        }
+    }
 
     ScreenScaffold(
         // 玻璃对话框挂主窗口 overlay 槽
@@ -353,31 +464,31 @@ fun ExamsScreen(
                 dismissText = "取消",
                 onDismiss = { showFallbackInfo = false },
             )
-            // 选择学期（液态玻璃对话框，两步式：先选后确认；与课表「学期与周次」同设计语言）
-            GlassDialog(
-                visible = showSemesterDialog,
-                onDismissRequest = { showSemesterDialog = false },
-                title = "选择学期",
-                text = {
-                    val accent = Color(0xFF3A8DCC) // 航海蓝：与课表/开关选中态同色
-                    GlassChoiceDropdown(
-                        options = semesters.map { it.label },
-                        selectedIndex = semesters.indexOfFirst { it == pendingSemester },
-                        tint = accent,
-                        onSelect = { i -> pendingSemester = semesters.getOrNull(i) }, // 仅暂存，点「确认」才生效
+            // 选择学期：与课表 ⋮ 菜单同款玻璃卡（同尺寸/字号/开合轨迹），点行即切换
+            AnchoredGlassMenu(
+                open = semMenuOpen,
+                icon = Icons.Outlined.CalendarMonth,
+                // 按钮中心距屏右 26dp、卡片右缘距屏右 12dp → 相对卡片右上角往左 14dp
+                anchorCenter = DpOffset((-14).dp, 24.dp),
+                onDismiss = { closeSemesterMenu() },
+                onClosed = { semMenuClosing = false },
+                content = {
+                    // 与课表菜单同构的标题行：点标题收回菜单
+                    GlassMenuRow(label = "学期选择") { closeSemesterMenu() }
+                    GlassMenuDivider()
+                    SemesterPickerList(
+                        semesters = semesters,
+                        selected = picked,
+                        accent = Color(0xFF3A8DCC),
+                        onSelect = { sem ->
+                            closeSemesterMenu()
+                            if (sem != picked) {
+                                picked = sem
+                                scope.launch { loadAll() }
+                            }
+                        },
                     )
                 },
-                confirmText = "确认",
-                onConfirm = {
-                    showSemesterDialog = false
-                    val ps = pendingSemester
-                    if (ps != null && ps != picked) {
-                        picked = ps
-                        scope.launch { loadAll() }
-                    }
-                },
-                dismissText = "取消",
-                onDismiss = { showSemesterDialog = false },
             )
         },
     ) {
@@ -446,13 +557,19 @@ fun ExamsScreen(
                         // 顶栏落在壁纸/深色磨砂上：标题按背板亮度自适应取深墨或亮墨
                         contentColor = Wallpaper.adaptiveInk(MaterialTheme.colorScheme.onSurface),
                     ) {
+                        // 刷新按钮全程保留：菜单卡收起时左缘扫过按钮，真实按钮会随
+                        // 遮挡解除自然露出；旧的「整段换成 Spacer」会让按钮消失到动画结束
                         GlassIconButton(Icons.Filled.Refresh, "刷新", onClick = { showRefreshConfirm = true })
                         Spacer(Modifier.width(8.dp))
-                        GlassIconButton(
-                            Icons.Outlined.CalendarMonth,
-                            "选择学期",
-                            onClick = { if (semesters.isNotEmpty()) showSemesterDialog = true },
-                        )
+                        if (semMenuOpen || semMenuClosing) {
+                            Spacer(Modifier.size(36.dp))
+                        } else {
+                            GlassIconButton(
+                                Icons.Outlined.CalendarMonth,
+                                "选择学期",
+                                onClick = { if (semesters.isNotEmpty()) semMenuOpen = true },
+                            )
+                        }
                     }
                     // tab 切换：着色液态玻璃按钮（对齐体测页性别按钮范式），
                     // 选中随 Pager 页实时联动（点击 animateScrollToPage / 滑动反向高亮）

@@ -13,8 +13,8 @@ android {
         applicationId = "com.gzmtuview"
         minSdk = 26
         targetSdk = 36
-        versionCode = 3
-        versionName = "0.1.2"
+        versionCode = 4
+        versionName = "0.1.3"
         // 按用户偏好仅构建 arm64-v8a（真机目标）
         ndk {
             abiFilters.add("arm64-v8a")

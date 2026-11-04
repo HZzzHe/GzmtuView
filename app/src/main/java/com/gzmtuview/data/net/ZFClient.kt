@@ -67,13 +67,12 @@ class ZFClient(
     private val baseUrlOverride: String? = null,
     private val cookieJar: MemCookieJar = MemCookieJar(),
 ) {
-    /** 默认教务系统地址。 */
     companion object {
         /**
          * ★ 开源版是占位值，必须改成你自己学校的正方教务系统地址再构建：
          * 只需「协议 + 域名」，形如 `https://jwgl.xxx.edu.cn`，
          * 应用内的路径前缀由 [PATH_PREFIX] 统一拼接，不要把它写进这里。
-         * 仍是该占位值时 [login] 直接报错，不会真的去连 example 域名。
+         * 仍是该占位值时 [request] 直接报错，不会真的去连 example 域名。
          */
         const val DEFAULT_BASE_URL = "https://your-academic-affairs-server.example.edu.cn"
 
@@ -453,14 +452,30 @@ class ZFClient(
         }
     }
 
-    /** 查询指定学期的考试成绩（手机版接口）。 */
+    /** 查询指定学期的考试安排（PC 端「考试信息查询」，学生本人数据）。 */
     suspend fun fetchExams(semester: Semester): List<ExamRecord> = autoRelogin {
+        // 手机版 ksmdglMobile 模块已被教务下线（入口页与列表接口都返回「系统运行异常」），
+        // 改用 PC 端同一张表的数据接口：返回分页对象 {"items":[...]}，一次给出全部记录。
         val body = request(
-            "$PATH_PREFIX/pkmdgl/ksmdglMobile_cxKsxxList.html",
-            query = mapOf("doType" to "app"),
+            "$PATH_PREFIX/kwgl/kscx_cxXsksxxIndex.html",
+            query = mapOf("doType" to "query"),
             form = mapOf("xnm" to semester.xnm, "xqm" to semester.xqm),
         )
-        parseListResponse(body) { JSONObject(it.toString()) }.map { ExamRecord.fromJson(it) }
+        if (body.contains("login_slogin")) {
+            throw ZFException("登录已过期，请重新登录", sessionExpired = true)
+        }
+        val root = try {
+            JSONObject(body)
+        } catch (_: Exception) {
+            throw ZFException("考试数据格式异常")
+        }
+        val items = root.optJSONArray("items") ?: JSONArray()
+        val result = mutableListOf<ExamRecord>()
+        for (i in 0 until items.length()) {
+            val item = items.optJSONObject(i) ?: continue
+            result.add(ExamRecord.fromJson(item))
+        }
+        result
     }
 
     /** 查询指定学期的成绩（手机版接口）。 */

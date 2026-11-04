@@ -55,12 +55,14 @@ class SettingsStore(private val context: Context) : CredentialStore, SemesterCac
         val skippedCourses = stringPreferencesKey("skipped_courses")
         val holidayAdjust = booleanPreferencesKey("holiday_adjust")
         val hapticFeedback = booleanPreferencesKey("haptic_feedback")
+        val autoCheckUpdate = booleanPreferencesKey("auto_check_update")
         val showWeekStepper = booleanPreferencesKey("show_week_stepper")
         val wallpaper = booleanPreferencesKey("wallpaper")
         val wallpaperDim = floatPreferencesKey("wallpaper_dim")
         val wallpaperBlur = floatPreferencesKey("wallpaper_blur")
         val wallpaperGlobal = booleanPreferencesKey("wallpaper_global")
         val lastSyncDay = stringPreferencesKey("last_sync_day")
+        val splashAd = booleanPreferencesKey("splash_ad")
     }
 
     /** 有效学期缓存有效期（毫秒）。 */
@@ -300,4 +302,13 @@ class SettingsStore(private val context: Context) : CredentialStore, SemesterCac
 
     fun loadPreferHttps(): Boolean = readBool(K.preferHttps, true)
     fun savePreferHttps(value: Boolean) = writeBool(K.preferHttps, value)
+
+    /** 启动时自动检查更新（默认开）；关闭后仍可在设置里手动检查。 */
+    fun loadAutoCheckUpdate(): Boolean = readBool(K.autoCheckUpdate, true)
+    fun saveAutoCheckUpdate(value: Boolean) = writeBool(K.autoCheckUpdate, value)
+
+    // ---- 开屏摇一摇广告彩蛋（默认关；设置页「GZMTU View」连点 5 次切换） ----
+
+    fun loadSplashAd(): Boolean = readBool(K.splashAd, false)
+    fun saveSplashAd(value: Boolean) = writeBool(K.splashAd, value)
 }

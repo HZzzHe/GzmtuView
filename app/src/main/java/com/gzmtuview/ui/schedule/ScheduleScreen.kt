@@ -48,6 +48,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -63,6 +64,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -80,12 +85,13 @@ import com.gzmtuview.data.export.WakeupCsvExporter
 import com.gzmtuview.data.model.skipKey
 import com.gzmtuview.ui.glass.GlassIconButton
 import com.gzmtuview.ui.glass.GlassTopBar
-import com.gzmtuview.ui.glass.GlassChoiceDropdown
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
@@ -96,23 +102,29 @@ import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.shadow.Shadow
 import com.kyant.shapes.Capsule
 import com.kyant.shapes.RoundedCornerStyle
-import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.shadow
+import com.gzmtuview.ui.glass.AnchoredGlassMenu
+import com.gzmtuview.ui.glass.GlassMenuCardPadding
+import com.gzmtuview.ui.glass.GlassMenuCardRadius
+import com.gzmtuview.ui.glass.GlassMenuCardWidth
+import com.gzmtuview.ui.glass.GlassMenuChevron
+import com.gzmtuview.ui.glass.GlassMenuDivider
+import com.gzmtuview.ui.glass.GlassMenuRow
+import com.gzmtuview.ui.glass.GlassMenuRowHeight
 import com.gzmtuview.ui.glass.LocalAppBackdrop
 import com.gzmtuview.ui.glass.LocalDialogBackdrop
+import com.gzmtuview.ui.glass.SemesterPickerList
 import com.gzmtuview.ui.glass.luminanceMapped
+import com.gzmtuview.ui.glass.revealHeight
 import com.gzmtuview.ui.glass.verticalTint
 import androidx.compose.material.icons.outlined.Assignment
 import androidx.compose.material.icons.outlined.Handyman
-import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.rounded.Loop
-import androidx.compose.material.icons.outlined.CalendarMonth
-import androidx.compose.material.icons.outlined.Refresh
-import androidx.compose.material.icons.outlined.IosShare
 import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.colorControls
 import com.kyant.backdrop.effects.lens
@@ -128,6 +140,8 @@ import com.gzmtuview.ui.ScreenScaffold
 import com.gzmtuview.ui.sync.DailySync
 import com.gzmtuview.ui.sync.SyncPhase
 import com.gzmtuview.ui.wallpaper.Wallpaper
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import com.gzmtuview.ui.glass.GlassDialog
 import com.gzmtuview.ui.glass.Haptics
 import com.gzmtuview.ui.glass.LiquidSlider
@@ -210,9 +224,7 @@ fun ScheduleScreen(
     // 节假日调休（beta，默认关）：开启后课表按官方放假/补班重排
     var holidayAdjust by remember { mutableStateOf(false) }
     var showWeekJump by remember { mutableStateOf(false) }
-    var showSemesterPick by remember { mutableStateOf(false) }
-    // 两步式选择：先在对话框内选学期/周次（暂存），点确认才提交
-    var pendingSemester by remember { mutableStateOf<Semester?>(null) }
+    // 周次跳转对话框：先在对话框内选周次（暂存），点确认才提交
     var pendingWeekF by remember { mutableFloatStateOf(1f) }
     var showRefreshConfirm by remember { mutableStateOf(false) }
     // 「同步失败」芯片点开才展开说明（原离线横幅的文案搬进这里）
@@ -239,11 +251,6 @@ fun ScheduleScreen(
     LaunchedEffect(showWeekJump) {
         if (showWeekJump) {
             pendingWeekF = currentPage.coerceIn(1, weekCount).toFloat()
-        }
-    }
-    LaunchedEffect(showSemesterPick) {
-        if (showSemesterPick) {
-            pendingSemester = selected
         }
     }
 
@@ -361,6 +368,9 @@ fun ScheduleScreen(
         holidayAdjust = app.store.loadHolidayAdjust()
         // 切页返回：数据已从页面缓存恢复，所见即缓存
         if (SchedulePageCache.loadedState.value && courses.isNotEmpty()) {
+            // 冷启动预热只搬课表与 loaded，颜色映射可能为空；不补的话首屏先画课名哈希
+            // 兜底色，等每日同步写回映射色时整页换色
+            if (courseColorIndex == null) ensureColorIndex(courses)
             loading = false
             return
         }
@@ -381,16 +391,17 @@ fun ScheduleScreen(
 
     // —— "更多"菜单状态（玻璃浮层挂 AppScreen overlay，主窗口坐标，backdrop 取色正确）——
     var menuOpen by remember { mutableStateOf(false) }
-    var menuShown by remember { mutableStateOf(false) }
-    val menuPop = remember { androidx.compose.animation.core.Animatable(0f) }
-    LaunchedEffect(menuOpen) {
-        if (menuOpen) {
-            menuShown = true
-            // 临界阻尼弹簧：非线性加速展开但不过冲回落（过冲观感被否）
-            menuPop.animateTo(1f, spring(dampingRatio = 1f, stiffness = 480f))
-        } else if (menuShown) {
-            menuPop.animateTo(0f, tween(durationMillis = 160, easing = FastOutSlowInEasing))
-            menuShown = false
+    // 打开/收起动画期间真实按钮都不绘制：按钮替身（放大淡出、icon 交接）由菜单浮层负责。
+    // 收起时按钮一旦提前回到卡片下面，玻璃按钮会被卡片采样成一块不透明白底。
+    var menuClosing by remember { mutableStateOf(false) }
+    // 兜底：菜单浮层若被宿主摘除（设置覆盖页会抑制父页浮层），收起协程随之取消、
+    // onClosed 不再回调；超时后无条件交还按钮，避免返回课表后「更多」一直不出现。
+    // 2s 而非 500ms：收起动画会被系统 animator_duration_scale 成倍放慢，
+    // 500ms 会在慢速/无障碍倍率下提前放出真实按钮，动画中露出两个⋮。
+    LaunchedEffect(menuClosing) {
+        if (menuClosing) {
+            delay(2000)
+            menuClosing = false
         }
     }
 
@@ -479,101 +490,50 @@ fun ScheduleScreen(
         },
         // 菜单玻璃浮层（主窗口坐标；Popup 子窗口内 drawBackdrop 采样坐标会错位）
         overlay = {
-                        if (menuShown) {
-                        // 点菜单外关闭
-                        Box(
-                            Modifier
-                                .fillMaxSize()
-                                .clickable(
-                                    interactionSource = null,
-                                    indication = null,
-                                ) { menuOpen = false }
-                        )
-                        Box(
-                            Modifier
-                                .fillMaxSize()
-                                .statusBarsPadding()
-                                .padding(top = 48.dp, end = 12.dp),
-                            contentAlignment = Alignment.TopEnd,
-                        ) {
-                            val density = LocalDensity.current
-                            val surfaceGlass = MaterialTheme.colorScheme.surface.copy(alpha = 0.35f)
-                            val surfaceSolid = MaterialTheme.colorScheme.surface
-                            val menu = listOf(
-                                    Triple(Icons.Outlined.Settings, "设置") { onNavigate(3) },
-                                    Triple(Icons.Outlined.IosShare, "导出课表 CSV") {
-                                        if (courses.isEmpty()) {
-                                            toast("当前暂无课表可导出")
-                                        } else {
-                                            scope.launch {
-                                                val out = WakeupCsvExporter.export(ctx, courses)
-                                                if (out == null) {
-                                                    toast("课表导出失败")
-                                                } else {
-                                                    exportResult = out
-                                                }
-                                            }
-                                        }
-                                    },
-                                    Triple(Icons.Outlined.CalendarMonth, "学期选择") { showSemesterPick = true },
-                                    Triple(Icons.Outlined.Refresh, "手动刷新") { refreshShow = true },
-                                )
-                            Box(
-                                Modifier
-                                        .graphicsLayer {
-                                            // 临界阻尼弹簧推进值：缩放/透明度/投影同帧联动，
-                                            // 避免投影等动画结束才出现（嵌套离屏阴影层在动画中被丢弃）
-                                            val v = menuPop.value
-                                            scaleX = v
-                                            scaleY = v
-                                            alpha = v.coerceIn(0f, 1f)
-                                            transformOrigin = TransformOrigin(1f, 0f)
-                                            // 原生轮廓投影：随 v 渐显并随层缩放，与展开动画一体
-                                            shadowElevation = 16.dp.toPx() * v.coerceIn(0f, 1f)
-                                            shape = RoundedCornerShape(20.dp)
-                                        }
-                                        .drawBackdrop(
-                                            backdrop = LocalAppBackdrop.current,
-                                            shape = { RoundedCornerShape(20.dp) },
-                                            effects = {
-                                                // 不用亮度映射：菜单背后是复杂课表内容，
-                                                // 亮度映射会产生斑驳暗块（Pronto 菜单背后是纯色背景所以干净）
-                                                verticalTint(
-                                                    tint = surfaceSolid,
-                                                    intensity = 0.35f,
-                                                    heightPx = 300 * density.density,
-                                                )
-                                                vibrancy()
-                                                blur(10f.dp.toPx())
-                                                lens(16f.dp.toPx(), 20f.dp.toPx())
-                                            },
-                                            // 投影改由外层 graphicsLayer 原生轮廓提供（随动画联动），
-                                            // 库内嵌套离屏阴影层在 HyperOS 动画期间不合成
-                                            shadow = { null },
-                                            onDrawSurface = { drawRect(surfaceGlass.copy(alpha = 0.55f)) },
-                                        )
-                                        .clip(RoundedCornerShape(20.dp))
-                                        .width(206.dp),
-                                ) {
-                                    Column(Modifier.padding(horizontal = 5.dp, vertical = 5.dp)) {
-                                        menu.forEachIndexed { idx, (icon, label, action) ->
-                                            MenuRow(
-                                                icon = icon,
-                                                label = label,
-                                                // 行错峰：面板弹簧推进时逐行上浮淡入
-                                                enterProgress =
-                                                    ((menuPop.value - idx * 0.07f) / 0.7f)
-                                                        .coerceIn(0f, 1f),
-                                                onClick = {
-                                                    menuOpen = false
-                                                    action()
-                                                },
-                                            )
-                                        }
-                                    }
+            ScheduleMoreMenu(
+                open = menuOpen,
+                items = listOf(
+                    ScheduleMenuItem("设置") { onNavigate(3) },
+                    ScheduleMenuItem("导出课表 CSV") {
+                        if (courses.isEmpty()) {
+                            toast("当前暂无课表可导出")
+                        } else {
+                            scope.launch {
+                                val out = WakeupCsvExporter.export(ctx, courses)
+                                if (out == null) {
+                                    toast("课表导出失败")
+                                } else {
+                                    exportResult = out
+                                }
                             }
                         }
+                    },
+                    ScheduleMenuItem("学期选择", expandable = true) {},
+                    // 条目顺序：搜索夹在学期选择与手动刷新之间；搜索为独立覆盖页（dest=4）
+                    ScheduleMenuItem("搜索") { onNavigate(4) },
+                    ScheduleMenuItem("手动刷新") { refreshShow = true },
+                ),
+                semesters = semesters,
+                selectedSemester = selected,
+                onSemesterSelect = { sem ->
+                    if (menuOpen) {
+                        menuOpen = false
+                        menuClosing = true
                     }
+                    if (sem != selected) {
+                        selected = sem
+                        scope.launch { loadSchedule() } // 换学期重载（内部可能自动定位当前周）
+                    }
+                },
+                onDismiss = {
+                    if (menuOpen) {
+                        menuOpen = false
+                        menuClosing = true
+                    }
+                },
+                // 卡片完整缩回按钮位置后才让真实按钮出现，最后一帧两者尺寸/位置/icon 对齐
+                onClosed = { menuClosing = false },
+            )
         // 手动刷新确认（玻璃对话框，官方 DialogContent 配方）
         GlassDialog(
             visible = refreshShow,
@@ -657,35 +617,6 @@ fun ScheduleScreen(
             },
             dismissText = "取消",
             onDismiss = { showWeekJump = false },
-        )
-        // 学期选择（液态玻璃对话框，两步式：先选学期，点「切换」才提交）
-        GlassDialog(
-            visible = showSemesterPick,
-            onDismissRequest = { showSemesterPick = false },
-            title = "学期选择",
-            text = {
-                val accent = Color(0xFF3A8DCC) // 航海蓝：与开关/考试页选中态同色
-                val caption = MaterialTheme.colorScheme.onSurfaceVariant
-                Text("学期", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = caption)
-                Spacer(Modifier.height(10.dp))
-                GlassChoiceDropdown(
-                    options = semesters.map { it.label },
-                    selectedIndex = semesters.indexOfFirst { it == pendingSemester },
-                    tint = accent,
-                    onSelect = { i -> pendingSemester = semesters.getOrNull(i) }, // 仅暂存，点「切换」才生效
-                )
-            },
-            confirmText = "切换",
-            onConfirm = {
-                showSemesterPick = false
-                val ps = pendingSemester
-                if (ps != null && ps != selected) {
-                    selected = ps
-                    scope.launch { loadSchedule() } // 换学期重载（内部可能自动定位当前周）
-                }
-            },
-            dismissText = "取消",
-            onDismiss = { showSemesterPick = false },
         )
     exportResult?.let { res ->
         GlassDialog(
@@ -817,8 +748,16 @@ fun ScheduleScreen(
                             Icon(Icons.Filled.UnfoldMore, null, Modifier.size(14.dp), tint = subInk)
                         }
                     },
+                    // 与系统相册对齐：右侧按钮离屏幕边缘留 18dp（默认 8dp 太贴边）
+                    trailingEndPadding = 18.dp,
                 ) {
-                    GlassIconButton(Icons.Filled.MoreHoriz, "更多", onClick = { menuOpen = true })
+                    // 打开/收起期间隐藏真实按钮：玻璃按钮位于捕获子树内，给它套 alpha/scale 层会在
+                    // HyperOS 上按矩形合成（按钮阴影变方、菜单里出现按钮区接缝）；
+                    // 收起时它还会被尚未缩完的卡片采样成一块不透明白底。
+                    // 「⋮」的淡出/浮现由菜单卡片自己画（overlay，捕获层之外），见 ScheduleMoreMenu。
+                    if (!menuOpen && !menuClosing) {
+                        GlassIconButton(Icons.Filled.MoreHoriz, "更多", onClick = { menuOpen = true })
+                    }
                 }
                 // 离线不再有页内横幅：当日同步失败只由底栏那颗「同步失败」芯片说明，
                 // 点它才展开说明对话框（避免横幅与芯片同时出现）。
@@ -896,42 +835,208 @@ fun ScheduleScreen(
         }
 }
 
+/** 课表页「更多」菜单项；动画与排版统一由 [ScheduleMoreMenu] 负责。 */
+private class ScheduleMenuItem(
+    val label: String,
+    /** true：不执行 [action]，点击展开下方二级栏（如学期选择） */
+    val expandable: Boolean = false,
+    val action: () -> Unit,
+)
+
+/** 二级栏浮起时主菜单的缩小比例（相册实测约 94.5%，右缘/上沿不动） */
+private const val MenuSubShrink = 0.05f
+
+/** 二级栏面底色（近不透明，隔断被盖住的主菜单行，避免深色模式下透出） */
+private const val MenuSubFill = 0.95f
+
+/** 二级栏上沿比触发行多出的呼吸位：卡片上移同样的距离，标题行位置不动 */
+private val MenuSubTopCap = 8.dp
+
 /**
- * 「更多」菜单行：进入时按 [enterProgress] 上浮淡入（配合面板弹簧形成逐行错峰），
- * 按压有圆角底色 + 轻微缩放的即时反馈（玻璃面板上不用 ripple，观感更干净）。
+ * 「更多」菜单：对齐系统相册的容器展开/收回（卡片实现见 [AnchoredGlassMenu]）。
+ * - 打开：「⋮」在按钮处淡出，同时卡片以 36dp 的圆弹出，停顿一帧后再长成菜单；
+ * - 收回：卡片缩回 36dp 的圆，「⋮」在中段于卡面中央渐显并跟着卡片中心走，收完由真实按钮接走。
+ * 全程只有卡片这一个白色表面，**不再绘制不透明的按钮替身**——替身是方底 + 自带阴影，
+ * 正是用户看到的「白块 / 方形阴影」；按钮动效全部由卡片本身承担。
  */
 @Composable
-private fun MenuRow(
-    icon: ImageVector,
-    label: String,
-    enterProgress: Float,
-    onClick: () -> Unit,
+private fun ScheduleMoreMenu(
+    open: Boolean,
+    items: List<ScheduleMenuItem>,
+    semesters: List<Semester>,
+    selectedSemester: Semester?,
+    onSemesterSelect: (Semester) -> Unit,
+    onDismiss: () -> Unit,
+    onClosed: () -> Unit,
+) {
+    // 二级栏（学期选择）：叠在「学期选择」行上展开（相册里 视图 的二级卡就是盖住该行
+    // 及其下的兄弟行，而不是另起一张隔开的下拉卡）。锚点由该行布局实测得到。
+    var subOpen by remember { mutableStateOf(false) }
+    var subVisible by remember { mutableStateOf(false) }
+    // 触发行在卡片内的 y（Dp）；二级卡标题行与该行上沿重合（两边同内衬、同行高）
+    var subAnchorY by remember { mutableStateOf(0.dp) }
+    val subProgress = remember { Animatable(0f) }
+    val density = LocalDensity.current
+    LaunchedEffect(subOpen) {
+        if (subOpen) subVisible = true
+        subProgress.animateTo(
+            if (subOpen) 1f else 0f,
+            tween(
+                durationMillis = if (subOpen) 240 else 180,
+                easing = FastOutSlowInEasing,
+            ),
+        )
+        if (!subOpen) subVisible = false
+    }
+    // 菜单每次打开时重置二级栏；关闭时二级栏随菜单一起离场（不做自己的收起动画）
+    LaunchedEffect(open) {
+        if (open) {
+            subOpen = false
+            subVisible = false
+            subProgress.snapTo(0f)
+        } else {
+            subOpen = false
+        }
+    }
+
+    AnchoredGlassMenu(
+        open = open,
+        icon = Icons.Filled.MoreHoriz,
+        // 二级栏显示期间（含收起动画），点卡内/卡外都只收二级栏；
+        // 收完后的下一次点击才恢复原有语义（点外部关菜单、点条目进页面）
+        onDismiss = {
+            if (subVisible) subOpen = false else onDismiss()
+        },
+        onClosed = onClosed,
+        blockContentClicks = subVisible,
+        shrink = { 1f - MenuSubShrink * subProgress.value },
+        content = {
+            // 菜单标题行：点它收起菜单（相册二级栏的返回语义）
+            GlassMenuRow(label = "菜单") { onDismiss() }
+            GlassMenuDivider()
+            items.forEach { item ->
+                val trailing: (@Composable () -> Unit)? =
+                    if (item.expandable) {
+                        { GlassMenuChevron(expanded = subOpen) }
+                    } else {
+                        null
+                    }
+                GlassMenuRow(
+                    label = item.label,
+                    modifier = if (item.expandable) {
+                        Modifier.onGloballyPositioned { coords ->
+                            val y = with(density) { coords.positionInParent().y.toDp() }
+                            if (y != subAnchorY) subAnchorY = y
+                        }
+                    } else {
+                        Modifier
+                    },
+                    trailing = trailing,
+                ) {
+                    if (item.expandable) {
+                        subOpen = !subOpen
+                    } else {
+                        onDismiss()
+                        item.action()
+                    }
+                }
+            }
+        },
+        secondary = {
+            // 二级栏：叠在「学期选择」行上展开（相册二级卡同款——盖住该行与其下的
+            // 兄弟行，而不是在整张菜单下方另起一张）。上沿比触发行多留 8dp 呼吸位，
+            // 卡片同步上移 8dp，标题文字仍落在被盖住的那一行上，不会跳。
+            if (open && subVisible) {
+                Box(
+                    Modifier
+                        .align(Alignment.TopEnd)
+                        // 固定在被点行原来的位置：主菜单缩小是往右下退，二级卡不动，
+                        // 标题文字才能与点击前那行逐像素对齐，不会在展开瞬间位移。
+                        .offset {
+                            IntOffset(0, (subAnchorY - MenuSubTopCap).roundToPx())
+                        },
+                ) {
+                    SemesterSubmenu(
+                        semesters = semesters,
+                        selected = selectedSemester,
+                        onSelect = onSemesterSelect,
+                        onCollapse = { subOpen = false },
+                        progress = { subProgress.value },
+                    )
+                }
+            }
+        },
+    )
+}
+
+/**
+ * 「更多」菜单的二级栏：学期列表，当前学期蓝字标记，点选即切换。
+ * 与主菜单同一套玻璃配方，但面底更实（隔断被盖住的主菜单行）、阴影恒定：
+ * 相册里二级卡从出现起就是一张完整的浮起卡片，不随高度「长阴影」。
+ */
+@Composable
+private fun SemesterSubmenu(
+    semesters: List<Semester>,
+    selected: Semester?,
+    onSelect: (Semester) -> Unit,
+    onCollapse: () -> Unit,
+    progress: () -> Float,
 ) {
     val scheme = MaterialTheme.colorScheme
-    val interaction = remember { MutableInteractionSource() }
-    val pressed by interaction.collectIsPressedAsState()
-    val pressScale by animateFloatAsState(if (pressed) 0.96f else 1f, tween(140))
-    val pressBg by animateFloatAsState(if (pressed) 0.10f else 0f, tween(140))
-    Row(
+    val surfaceSolid = scheme.surface
+    val density = LocalDensity.current
+    // 标题行实测高度：决定「标题卡」的最小高度（系统字体放大时行高会变）
+    var headerH by remember { mutableStateOf(GlassMenuRowHeight) }
+    val minCardH = GlassMenuCardPadding + MenuSubTopCap + headerH + GlassMenuCardPadding
+    Box(
         Modifier
-            .fillMaxWidth()
-            .graphicsLayer {
-                alpha = enterProgress
-                translationY = (1f - enterProgress) * -10f.dp.toPx()
-                scaleX = pressScale
-                scaleY = pressScale
-            }
-            .clip(RoundedCornerShape(12.dp))
-            .background(scheme.onSurface.copy(alpha = pressBg))
-            .clickable(interactionSource = interaction, indication = null) { onClick() }
-            .padding(horizontal = 10.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .width(GlassMenuCardWidth.dp)
+            .drawBackdrop(
+                backdrop = LocalAppBackdrop.current,
+                shape = { RoundedCornerShape(GlassMenuCardRadius.dp) },
+                effects = {
+                    verticalTint(surfaceSolid, 0.50f, 300 * density.density)
+                    vibrancy()
+                    blur(22f.dp.toPx())
+                    // 二级卡不画透镜高光：叠加在主菜单上时，深色模式里那圈高光会被
+                    // 看成「学期选择上方裂开的一条线」。层次交给面底深浅 + 阴影。
+                },
+                shadow = {
+                    Shadow(
+                        radius = 18.dp,
+                        offset = DpOffset(0.dp, 5.dp),
+                        color = Color.Black.copy(alpha = 0.16f),
+                    )
+                },
+                onDrawSurface = {
+                    drawRect(surfaceSolid.copy(alpha = MenuSubFill))
+                },
+            )
+            // 玻璃与阴影不受裁切；只裁内容。最小高度 = 标题卡（相册先出现完整标题卡，
+            // 再从下方长出列表），不会从 0 高度露出一条线。
+            .clipToBounds()
+            .revealHeight(progress, minCardH),
     ) {
-        Icon(icon, null, Modifier.size(18.dp), tint = scheme.onSurfaceVariant)
-        Spacer(Modifier.width(10.dp))
-        Text(label, fontSize = 13.sp, color = scheme.onSurface)
+        Column(Modifier.padding(GlassMenuCardPadding).padding(top = MenuSubTopCap)) {
+            // 卡内标题 = 被盖住的那一行：无图标、同字号/内衬，箭头朝上，点它收回二级栏
+            GlassMenuRow(
+                label = "学期选择",
+                modifier = Modifier.onSizeChanged {
+                    headerH = with(density) { it.height.toDp() }
+                },
+                trailing = { GlassMenuChevron(expanded = true) },
+            ) { onCollapse() }
+            GlassMenuDivider()
+            SemesterPickerList(
+                semesters = semesters,
+                selected = selected,
+                accent = SyncBlue,
+                onSelect = onSelect,
+            )
+        }
     }
 }
+
 
 /** 与玻璃底栏同高同排：AppShell 里 LiquidBottomTabs 高 = 64dp × heightScale(0.81) */
 private val stepBarHeight = (64f * 0.81f).dp

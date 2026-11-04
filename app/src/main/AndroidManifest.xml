@@ -7,6 +7,8 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- 交互触感：玻璃按钮/开关/切页/滑块的轻振动反馈 -->
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- 应用内更新：下载完成后调起系统安装器 -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <application
         android:name=".GmuApplication"

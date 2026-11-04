@@ -5,6 +5,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.SystemClock
 import android.widget.Toast
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -35,9 +36,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -49,7 +51,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.gzmtuview.GmuApplication
 import com.gzmtuview.data.net.ProjectRepo
-import com.gzmtuview.data.net.UpdateService
 import com.gzmtuview.ui.PredictiveSlideOver
 import com.gzmtuview.ui.ScreenScaffold
 import com.gzmtuview.ui.feature.AccountScreen
@@ -59,11 +60,11 @@ import com.gzmtuview.ui.glass.GlassDialog
 import com.gzmtuview.ui.glass.GlassIconButton
 import com.gzmtuview.ui.glass.GlassTopBar
 import com.gzmtuview.ui.theme.LightPageBase
+import com.gzmtuview.ui.update.UpdateCenter
 import com.gzmtuview.ui.wallpaper.Wallpaper
-import kotlinx.coroutines.launch
 
 /** 版本号（与原生工程发布版本一致）。 */
-const val kAppVersion = "v0.1.2"
+const val kAppVersion = "v0.1.3"
 
 /**
  * 页面基色（对照第三方设置页截图）：浅色为中性灰、深色为深灰，
@@ -106,10 +107,9 @@ fun SettingsScreen(
     var sub by remember { mutableStateOf<String?>(null) }
     var showProjectHomeConfirm by remember { mutableStateOf(false) }
     var showLicense by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
-    var checkingUpdate by remember { mutableStateOf(false) }
-    var updateMsg by remember { mutableStateOf<String?>(null) }
-    var updateUrl by remember { mutableStateOf<String?>(null) }
+    // 彩蛋：连点「GZMTU View」5 次切换开屏摇一摇广告；两次点击间隔超过 1.5 秒重新计数
+    var brandClicks by remember { mutableIntStateOf(0) }
+    var brandLastClick by remember { mutableLongStateOf(0L) }
     // 未配置 ProjectRepo.SLUG 时为 null：此时「项目主页」一行不出现
     val homeUrl = ProjectRepo.homeUrl
 
@@ -169,24 +169,6 @@ fun SettingsScreen(
                         confirmText = "知道了",
                         onConfirm = { showLicense = false },
                     )
-                    GlassDialog(
-                        visible = updateMsg != null,
-                        onDismissRequest = { updateMsg = null },
-                        title = "检查更新",
-                        textString = updateMsg,
-                        confirmText = if (updateUrl != null) "去下载" else "知道了",
-                        onConfirm = {
-                            val url = updateUrl
-                            updateMsg = null
-                            if (url != null) {
-                                runCatching {
-                                    ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-                                }.onFailure {
-                                    Toast.makeText(ctx, "无法打开浏览器，请手动访问 $url", Toast.LENGTH_SHORT).show()
-                                }
-                            }
-                        },
-                    )
                 },
             ) {
                 val scheme = MaterialTheme.colorScheme
@@ -240,49 +222,44 @@ fun SettingsScreen(
                                 title = "GZMTU View",
                                 subtitle = kAppVersion,
                                 showChevron = false,
+                                onClick = {
+                                    val now = SystemClock.elapsedRealtime()
+                                    brandClicks =
+                                        if (now - brandLastClick > 1500L) 1 else brandClicks + 1
+                                    brandLastClick = now
+                                    if (brandClicks >= 5) {
+                                        brandClicks = 0
+                                        val enabled = !app.store.loadSplashAd()
+                                        app.store.saveSplashAd(enabled)
+                                        Toast.makeText(
+                                            ctx,
+                                            if (enabled) "开屏摇一摇广告已开启（连点 5 次可关闭）"
+                                            else "开屏摇一摇广告已关闭",
+                                            Toast.LENGTH_SHORT,
+                                        ).show()
+                                    }
+                                },
                             )
-                            GroupDivider()
                             if (homeUrl != null) {
+                                GroupDivider()
                                 SettingsRow(
                                     title = "项目主页",
                                     subtitle = homeUrl.removePrefix("https://"),
                                     onClick = { showProjectHomeConfirm = true },
                                 )
-                                GroupDivider()
                             }
+                            GroupDivider()
                             SettingsRow(
                                 title = "开源许可",
                                 subtitle = "液态玻璃等第三方组件致谢",
                                 onClick = { showLicense = true },
                             )
                             GroupDivider()
+                            // 检查、下载、安装都走全局 UpdateDialogHost（自动检查同一条链路）
                             SettingsRow(
                                 title = "检查更新",
-                                subtitle = if (checkingUpdate) "检查中…" else "当前 $kAppVersion",
-                                onClick = {
-                                    if (!checkingUpdate) {
-                                        checkingUpdate = true
-                                        scope.launch {
-                                            val info = UpdateService.fetchLatest()
-                                            checkingUpdate = false
-                                            val current = runCatching {
-                                                ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName
-                                            }.getOrNull() ?: kAppVersion
-                                            if (info == null || info.tagName.isEmpty()) {
-                                                updateUrl = null
-                                                updateMsg = "暂无法获取更新信息（网络不可用或尚未发布 Release）。"
-                                            } else if (UpdateService.isNewer(info.tagName, current)) {
-                                                updateUrl = info.htmlUrl
-                                                updateMsg = "发现新版本 ${info.tagName}" +
-                                                    (if (info.title.isNotEmpty()) "（${info.title}）" else "") +
-                                                    "，当前为 $current。\n\n前往 Release 页下载最新安装包。"
-                                            } else {
-                                                updateUrl = null
-                                                updateMsg = "当前已是最新版本（$current）。"
-                                            }
-                                        }
-                                    }
-                                },
+                                subtitle = if (UpdateCenter.checking) "检查中…" else "当前 $kAppVersion",
+                                onClick = { UpdateCenter.check(ctx, manual = true) },
                             )
                         }
 

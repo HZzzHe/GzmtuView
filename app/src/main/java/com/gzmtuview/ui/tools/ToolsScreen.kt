@@ -11,6 +11,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.FitnessCenter
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -60,6 +61,17 @@ fun ToolsScreen(
                     ) {
                         SectionLabel("工具")
                         SettingsGroup {
+                            // 搜索入口：与课表菜单同一个全学期搜索页（dest = 4）
+                            SettingsRow(
+                                title = "搜索",
+                                subtitle = "查课程、教室、考试与成绩",
+                                leading = {
+                                    Icon(Icons.Outlined.Search, null, Modifier.size(22.dp),
+                                        tint = scheme.onSurfaceVariant)
+                                },
+                                onClick = { onNavigate(4) },
+                            )
+                            GroupDivider()
                             SettingsRow(
                                 title = "体测成绩计算",
                                 subtitle = "看看哪里还可以更强",

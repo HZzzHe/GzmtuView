@@ -6,9 +6,12 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -17,14 +20,15 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.filled.Female
 import androidx.compose.material.icons.filled.Male
-import androidx.compose.material.icons.outlined.School
+import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -34,11 +38,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.DpOffset
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.gzmtuview.data.model.PhysicalTestResult
@@ -46,8 +55,12 @@ import com.gzmtuview.data.model.PhysicalTestScorer
 import com.gzmtuview.data.model.TestGender
 import com.gzmtuview.data.model.TestGrade
 import com.gzmtuview.ui.ScreenScaffold
+import com.gzmtuview.ui.glass.AnchoredGlassMenu
 import com.gzmtuview.ui.glass.FrostScrollPage
 import com.gzmtuview.ui.glass.GlassIconButton
+import com.gzmtuview.ui.glass.GlassMenuCardPadding
+import com.gzmtuview.ui.glass.GlassMenuRow
+import com.gzmtuview.ui.glass.GlassMenuRowHeight
 import com.gzmtuview.ui.glass.TintedGlassButton
 import com.gzmtuview.ui.settings.GroupDivider
 import com.gzmtuview.ui.settings.SectionLabel
@@ -57,6 +70,7 @@ import com.gzmtuview.ui.settings.settingsCardBase
 import com.gzmtuview.ui.settings.settingsPageBase
 
 private val Orange = Color(0xFFFF9800)
+private val AccentBlue = Color(0xFF3A8DCC)
 
 /**
  * 体测成绩计算：实时评分，总分 <50 橙色提醒。对齐 Flutter PhysicalTestPage。
@@ -67,6 +81,33 @@ private val Orange = Color(0xFFFF9800)
 fun PhysicalTestScreen(onBack: () -> Unit) {
     var gender by remember { mutableStateOf(TestGender.MALE) }
     var grade by remember { mutableStateOf(TestGrade.JUNIOR_SENIOR) }
+    // 年级选择：与考试页「选择学期」同款小窗玻璃菜单，压在「年级」行上展开；
+    // 卡内首项中心与触发行的标题中心对齐（第一项正好落在被盖住的行值上）；
+    // 收缩态是「大三大四」这块文字框（实测文字边界），不再借行尾箭头的圆按钮
+    var gradeMenuOpen by remember { mutableStateOf(false) }
+    var gradeMenuClosing by remember { mutableStateOf(false) }
+    var gradeRowTopPx by remember { mutableFloatStateOf(0f) }
+    var gradeRowHeightPx by remember { mutableFloatStateOf(0f) }
+    var gradeRowRightPx by remember { mutableFloatStateOf(0f) }
+    var gradeValueCenterXPx by remember { mutableFloatStateOf(0f) }
+    var gradeValueWidthPx by remember { mutableFloatStateOf(0f) }
+    var gradeValueHeightPx by remember { mutableFloatStateOf(0f) }
+    val density = LocalDensity.current
+    val statusBarDp = with(density) { WindowInsets.statusBars.getTop(density).toDp() }
+    val gradeRowCenterDp = with(density) { (gradeRowTopPx + gradeRowHeightPx / 2f).toDp() }
+    val gradeMenuHeaderCenter = GlassMenuCardPadding + GlassMenuRowHeight / 2
+    val gradeAnchorTop = (gradeRowCenterDp - gradeMenuHeaderCenter - statusBarDp).coerceAtLeast(0.dp)
+    val gradeValueSize = with(density) {
+        if (gradeValueWidthPx > 0f && gradeValueHeightPx > 0f) {
+            DpSize(gradeValueWidthPx.toDp(), gradeValueHeightPx.toDp())
+        } else {
+            DpSize(36.dp, 36.dp)
+        }
+    }
+    // 文字中心相对设置卡右缘（= 菜单卡右缘）的偏移，负值向左
+    val gradeAnchorCenterX = with(density) {
+        if (gradeRowRightPx > 0f) (gradeValueCenterXPx - gradeRowRightPx).toDp() else (-25).dp
+    }
     var height by remember { mutableStateOf("") }
     var weight by remember { mutableStateOf("") }
     var vital by remember { mutableStateOf("") }
@@ -103,7 +144,58 @@ fun PhysicalTestScreen(onBack: () -> Unit) {
     } else null
 
     val pageBase = settingsPageBase()
-    ScreenScaffold(hideBottomBar = true) {
+
+    fun closeGradeMenu() {
+        if (gradeMenuOpen) {
+            gradeMenuOpen = false
+            gradeMenuClosing = true
+        }
+    }
+
+    ScreenScaffold(
+        hideBottomBar = true,
+        // 年级菜单挂主窗口 overlay 槽（玻璃节点必须在捕获层之外）
+        overlay = {
+            AnchoredGlassMenu(
+                open = gradeMenuOpen,
+                // 卡片右缘与设置卡对齐（16dp 屏边）；锚点 = 行尾当前值的文字框中心，
+                // y 与卡内首项中心重合
+                anchorCenter = DpOffset(gradeAnchorCenterX, gradeMenuHeaderCenter),
+                anchorTop = gradeAnchorTop,
+                rightMargin = 16.dp,
+                anchorSize = gradeValueSize,
+                anchorContent = {
+                    Text(
+                        gradeLabel(grade),
+                        fontSize = 16.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                    )
+                },
+                // 收回时文字在原位浮现（不跟着缩小的卡片跑到卡心）
+                pinAnchorContent = true,
+                onDismiss = { closeGradeMenu() },
+                onClosed = { gradeMenuClosing = false },
+                content = {
+                    // 行内已有「年级」标签，小窗只放选项，不再重复标题与分割线
+                    GlassMenuRow(
+                        label = "大一大二",
+                        labelColor = if (grade == TestGrade.FRESHMAN_SOPHOMORE) AccentBlue else Color.Unspecified,
+                    ) {
+                        grade = TestGrade.FRESHMAN_SOPHOMORE
+                        closeGradeMenu()
+                    }
+                    GlassMenuRow(
+                        label = "大三大四",
+                        labelColor = if (grade == TestGrade.JUNIOR_SENIOR) AccentBlue else Color.Unspecified,
+                    ) {
+                        grade = TestGrade.JUNIOR_SENIOR
+                        closeGradeMenu()
+                    }
+                },
+            )
+        },
+    ) {
         FrostScrollPage(
             title = "体测成绩计算",
             pageBase = pageBase,
@@ -138,29 +230,54 @@ fun PhysicalTestScreen(onBack: () -> Unit) {
                     },
                 )
                 GroupDivider()
-                SettingsRow(
-                    title = "年级",
-                    showChevron = false,
-                    trailing = {
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            // 大一大二=青绿·书本打基础 / 大三大四=琥珀橙·学位帽临近毕业
-                            TintedGlassButton(
-                                label = "大一大二",
-                                icon = Icons.AutoMirrored.Outlined.MenuBook,
-                                selected = grade == TestGrade.FRESHMAN_SOPHOMORE,
-                                tint = Color(0xFF34B87A),
-                                onClick = { grade = TestGrade.FRESHMAN_SOPHOMORE },
-                            )
-                            TintedGlassButton(
-                                label = "大三大四",
-                                icon = Icons.Outlined.School,
-                                selected = grade == TestGrade.JUNIOR_SENIOR,
-                                tint = Color(0xFFE09540),
-                                onClick = { grade = TestGrade.JUNIOR_SENIOR },
-                            )
-                        }
+                // 年级：整行触发，小窗菜单从行尾箭头展开（当前项蓝字）
+                Box(
+                    Modifier.onGloballyPositioned { coords ->
+                        gradeRowTopPx = coords.positionInRoot().y
+                        gradeRowHeightPx = coords.size.height.toFloat()
+                        gradeRowRightPx = coords.positionInRoot().x + coords.size.width
                     },
-                )
+                ) {
+                    SettingsRow(
+                        title = "年级",
+                        showChevron = false,
+                        onClick = { if (!gradeMenuOpen) gradeMenuOpen = true },
+                        trailing = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    gradeLabel(grade),
+                                    fontSize = 16.sp,
+                                    // 保占位但隐形：菜单开合期间由浮层里的文字替身接管，
+                                    // 同字形同位置，收起后无缝换回
+                                    color = if (gradeMenuOpen || gradeMenuClosing) {
+                                        Color.Transparent
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    },
+                                    modifier = Modifier.onGloballyPositioned { coords ->
+                                        gradeValueCenterXPx =
+                                            coords.positionInRoot().x + coords.size.width / 2f
+                                        gradeValueWidthPx = coords.size.width.toFloat()
+                                        gradeValueHeightPx = coords.size.height.toFloat()
+                                    },
+                                )
+                                Spacer(Modifier.width(2.dp))
+                                // 菜单浮层展开期间由卡片里的箭头同位置接管；占位保持行宽，
+                                // 避免当前值在开合时左右跳动
+                                if (gradeMenuOpen || gradeMenuClosing) {
+                                    Spacer(Modifier.size(18.dp))
+                                } else {
+                                    Icon(
+                                        Icons.Outlined.ChevronRight,
+                                        null,
+                                        Modifier.size(18.dp),
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
+                                    )
+                                }
+                            }
+                        },
+                    )
+                }
             }
             Spacer(Modifier.height(20.dp))
 
@@ -366,4 +483,10 @@ private fun PhysicalResultView(r: PhysicalTestResult) {
             }
         }
     }
+}
+
+/** 年级显示名（触发行的当前值与二级栏选项共用）。 */
+private fun gradeLabel(grade: TestGrade): String = when (grade) {
+    TestGrade.FRESHMAN_SOPHOMORE -> "大一大二"
+    TestGrade.JUNIOR_SENIOR -> "大三大四"
 }

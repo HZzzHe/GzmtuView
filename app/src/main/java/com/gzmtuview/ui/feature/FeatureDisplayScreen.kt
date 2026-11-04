@@ -51,6 +51,7 @@ fun FeatureDisplayScreen(
     var showExamCountdown by remember { mutableStateOf(true) }
     var showWeekStepper by remember { mutableStateOf(true) }
     var preferHttps by remember { mutableStateOf(true) }
+    var autoCheckUpdate by remember { mutableStateOf(true) }
     var holidayAdjust by remember { mutableStateOf(false) }
     var hapticFeedback by remember { mutableStateOf(false) }
 
@@ -66,6 +67,7 @@ fun FeatureDisplayScreen(
         showExamCountdown = app.store.loadShowExamCountdown()
         showWeekStepper = app.store.loadShowWeekStepper()
         preferHttps = app.store.loadPreferHttps()
+        autoCheckUpdate = app.store.loadAutoCheckUpdate()
         holidayAdjust = app.store.loadHolidayAdjust()
         hapticFeedback = app.store.loadHapticFeedback()
         loaded = true
@@ -204,6 +206,19 @@ fun FeatureDisplayScreen(
                         app.store.savePreferHttps(it)
                         restartPromptFor = "优先使用 https 通道"
                         confirmDialog = true
+                    },
+                )
+                GroupDivider()
+                ToggleRow(
+                    title = "自动检查更新",
+                    subtitle = "每次启动时查询 GitHub Releases；关闭后不再自动检查，" +
+                        "仍可在「关于 → 检查更新」手动检查",
+                    value = autoCheckUpdate,
+                    loaded = loaded,
+                    backdropColor = switchBackdrop,
+                    onChanged = {
+                        autoCheckUpdate = it
+                        app.store.saveAutoCheckUpdate(it)
                     },
                 )
             }

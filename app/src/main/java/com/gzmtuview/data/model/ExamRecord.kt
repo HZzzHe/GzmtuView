@@ -3,17 +3,20 @@ package com.gzmtuview.data.model
 import org.json.JSONObject
 import java.time.LocalDateTime
 
-/** 考试信息记录（手机版考试接口返回项）。 */
+/**
+ * 考试信息记录（PC 端「考试信息查询」返回项）。
+ * 本校不下发 jxlmc/zwh，场地名称已含楼栋（如 B11-212）；xqmc 为空时用 cdxqmc（场地校区）兜底。
+ */
 data class ExamRecord(
     val kcmc: String,   // 课程名称
     val ksmc: String,   // 考试名称
     val kssj: String,   // 考试时间，如 "2026-07-13(14:30-16:30)"
     val kkxy: String,   // 开课学院
     val xqmc: String,   // 校区
-    val jxlmc: String,  // 楼号
+    val jxlmc: String,  // 楼号（PC 接口不返回时为空）
     val cdlbmc: String, // 场地类别
     val cdmc: String,   // 场地名称
-    val zwh: String,    // 座位号
+    val zwh: String,    // 座位号（本校不下发）
 ) {
     companion object {
         fun fromJson(json: JSONObject): ExamRecord = ExamRecord(
@@ -21,7 +24,7 @@ data class ExamRecord(
             ksmc = json.optString("ksmc"),
             kssj = json.optString("kssj"),
             kkxy = json.optString("kkxy"),
-            xqmc = json.optString("xqmc"),
+            xqmc = json.optString("xqmc").ifEmpty { json.optString("cdxqmc") },
             jxlmc = json.optString("jxlmc"),
             cdlbmc = json.optString("cdlbmc"),
             cdmc = json.optString("cdmc"),

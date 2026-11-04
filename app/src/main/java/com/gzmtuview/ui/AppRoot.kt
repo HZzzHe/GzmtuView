@@ -1,5 +1,9 @@
 package com.gzmtuview.ui
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -14,6 +18,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -28,10 +33,13 @@ import com.gzmtuview.ui.glass.GlassDialog
 import com.gzmtuview.ui.glass.LocalAppBackdrop
 import com.kyant.backdrop.backdrops.rememberCanvasBackdrop
 import com.gzmtuview.ui.schedule.SchedulePageCache
+import com.gzmtuview.ui.splash.SplashAdOverlay
 import com.gzmtuview.ui.sync.DailySync
 import com.gzmtuview.data.net.isNetworkError
 import com.gzmtuview.ui.login.LoginScreen
 import com.gzmtuview.ui.schedule.ScheduleScreen
+import com.gzmtuview.ui.update.UpdateCenter
+import com.gzmtuview.ui.update.UpdateDialogHost
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -55,6 +63,9 @@ fun AppRoot() {
     var restoringHint by remember { mutableStateOf("正在启动…") }
     // 会话失效被芯片送回登录页时的说明（主动退出登录不带这句）
     var reloginHint by remember { mutableStateOf<String?>(null) }
+    // 开屏彩蛋广告（进程内只弹一次）与「摇一摇 → 设置页」请求计数
+    var splashAdVisible by remember { mutableStateOf(false) }
+    var openSettingsRequest by remember { mutableIntStateOf(0) }
 
     LaunchedEffect(Unit) {
         val cache = app.cache
@@ -79,9 +90,16 @@ fun AppRoot() {
     LaunchedEffect(loggedIn) {
         if (loggedIn) {
             DailySync.start(app)
+            // 每次启动查一次新版本（进程内一次）；有更新时才弹更新对话框
+            UpdateCenter.autoCheck(ctx)
             val f = CrashGuard.lastCrashFile(app)
             if (f.exists()) {
                 lastCrash = runCatching { f.readText() }.getOrNull()
+            }
+            // 开屏广告只在进入主界面的首次启动弹：Activity 重建、登出再登录都不重复
+            if (!SplashAdGate.shown) {
+                SplashAdGate.shown = true
+                splashAdVisible = app.store.loadSplashAd()
             }
         }
     }
@@ -125,6 +143,26 @@ fun AppRoot() {
                     SchedulePageCache.errorState.value = null
                     reloginHint = "教务系统会话已失效，请重新登录"
                     loggedIn = false
+                },
+                openSettingsRequest = openSettingsRequest,
+                onSettingsRequestHandled = { openSettingsRequest = 0 },
+            )
+        }
+
+        // 更新对话框：全屏浮层，内容之上、崩溃日志之下
+        UpdateDialogHost()
+
+        // 彩蛋开屏广告：5 秒文字画面；摇一摇关闭并直达设置页
+        AnimatedVisibility(
+            visible = splashAdVisible,
+            enter = fadeIn(tween(220)),
+            exit = fadeOut(tween(220)),
+        ) {
+            SplashAdOverlay(
+                onFinished = { splashAdVisible = false },
+                onShake = {
+                    splashAdVisible = false
+                    openSettingsRequest++
                 },
             )
         }
@@ -189,3 +227,8 @@ private suspend fun trySession(app: GmuApplication, username: String, password: 
             runCatching { app.client.login(username, password) }.isSuccess
         }
     }
+
+/** 开屏广告进程级门闩：一次进程启动只弹一次（Activity 重建、登出再登录都不重复）。 */
+private object SplashAdGate {
+    var shown = false
+}

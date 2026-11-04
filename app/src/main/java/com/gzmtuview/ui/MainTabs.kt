@@ -8,6 +8,7 @@ import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.togetherWith
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -15,6 +16,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import com.gzmtuview.ui.exams.ExamsScreen
 import com.gzmtuview.ui.schedule.ScheduleScreen
+import com.gzmtuview.ui.schedule.ScheduleSearchScreen
 import com.gzmtuview.ui.settings.SettingsScreen
 import com.gzmtuview.ui.tools.ToolsScreen
 
@@ -29,29 +31,52 @@ import com.gzmtuview.ui.tools.ToolsScreen
  * 故「账号 → 设置 → 课表」逐级返回互不干扰。
  */
 @Composable
-fun MainTabs(onLogout: () -> Unit, onRelogin: () -> Unit = {}) {
-    // tab：主 tab 0/1/2（不再含设置）；settingsOpen：设置覆盖页开关
+fun MainTabs(
+    onLogout: () -> Unit,
+    onRelogin: () -> Unit = {},
+    openSettingsRequest: Int = 0,
+    onSettingsRequestHandled: () -> Unit = {},
+) {
+    // tab：主 tab 0/1/2（不再含设置）；settingsOpen：设置覆盖页；searchOpen：课表搜索页
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var settingsOpen by rememberSaveable { mutableStateOf(false) }
-    // 导航目标：3 = 打开设置覆盖页；其余 = 切主 tab 并关闭设置
-    fun navigate(dest: Int) {
-        if (dest == 3) {
+    var searchOpen by rememberSaveable { mutableStateOf(false) }
+    // 开屏广告摇一摇 → 直达设置页：数值自增即触发（初始 0 不动作），处理完由 AppRoot 归零
+    LaunchedEffect(openSettingsRequest) {
+        if (openSettingsRequest > 0) {
+            searchOpen = false
             settingsOpen = true
-        } else {
-            settingsOpen = false
-            tab = dest
+            onSettingsRequestHandled()
+        }
+    }
+    // 导航目标：3 = 设置覆盖页，4 = 课程搜索页；其余 = 切主 tab 并关闭覆盖页
+    fun navigate(dest: Int) {
+        when (dest) {
+            3 -> settingsOpen = true
+            4 -> searchOpen = true
+            else -> {
+                settingsOpen = false
+                searchOpen = false
+                tab = dest
+            }
         }
     }
     // 主 tab（考试/工具箱）系统返回先回课表，再次返回才退出应用；
-    // 设置覆盖页开启时由 PredictiveSlideOver 的预测性返回手势接管，故此处禁用
-    androidx.activity.compose.BackHandler(enabled = !settingsOpen && tab != 0) { tab = 0 }
+    // 覆盖页开启时由 PredictiveSlideOver 的预测性返回手势接管，故此处禁用
+    androidx.activity.compose.BackHandler(enabled = !settingsOpen && !searchOpen && tab != 0) { tab = 0 }
     AppScreen(
         selectedIndex = tab,
         onSelect = { navigate(it) },
     ) {
-        PredictiveSlideOver<Unit>(
-            childKey = if (settingsOpen) Unit else null,
-            onRequestClose = { settingsOpen = false },
+        PredictiveSlideOver<String>(
+            childKey = when {
+                settingsOpen -> "settings"
+                searchOpen -> "search"
+                else -> null
+            },
+            onRequestClose = {
+                if (settingsOpen) settingsOpen = false else searchOpen = false
+            },
             parent = {
                 AnimatedContent(
                     targetState = tab,
@@ -75,8 +100,11 @@ fun MainTabs(onLogout: () -> Unit, onRelogin: () -> Unit = {}) {
                     }
                 }
             },
-            child = {
-                SettingsScreen(onLogout = onLogout, onNavigate = { navigate(it) })
+            child = { key ->
+                when (key) {
+                    "settings" -> SettingsScreen(onLogout = onLogout, onNavigate = { navigate(it) })
+                    else -> ScheduleSearchScreen(onBack = { searchOpen = false })
+                }
             },
         )
     }
