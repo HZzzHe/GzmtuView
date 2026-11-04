@@ -115,8 +115,12 @@ fun <T : Any> PredictiveSlideOver(
     }
 
     Box(Modifier.fillMaxSize()) {
+        // 抑制必须与祖先取并集：工具箱等父页自身也套了一层 PredictiveSlideOver，
+        // 若直接以 childVisible 覆盖，搜索/设置浮层打开时内层会把外层的 true 冲成 false，
+        // 父页趁隙重新注册；浮层关闭后父页不再重跑 SideEffect，底栏就一直隐藏。
+        val suppressedByAncestor = LocalHostSuppressed.current
         // 父层：常驻；子页可见期间抑制其 host 注册并左移 1/4 视差
-        CompositionLocalProvider(LocalHostSuppressed provides childVisible) {
+        CompositionLocalProvider(LocalHostSuppressed provides (suppressedByAncestor || childVisible)) {
             Box(
                 Modifier.fillMaxSize().graphicsLayer {
                     translationX = -(1f - progress.value) * size.width / 4f
