@@ -71,7 +71,11 @@ object DailySync {
         started = true
         job = app.syncScope.launch {
             val today = LocalDate.now()
-            val cachedFirst = app.cache.loadCachedSemesters().firstOrNull()
+            // 只看有数据的学期：升级残留的空学期缓存不能当「今天已同步」的门控，
+            // 否则 0.1.4 留下的空 2026_12 会让真正的当前学期永远不走同步
+            val cachedFirst = app.cache.loadCachedSemestersWithData()
+                .ifEmpty { app.cache.loadCachedSemesters() }
+                .firstOrNull()
             val cached = cachedFirst?.let { app.cache.load(it) }
             val newestFresh = cached?.fetchedAt == today
             // DataStore 读失败只当"没跑过"处理；setup 阶段抛异常会直接冲掉整个协程

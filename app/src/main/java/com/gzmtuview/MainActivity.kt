@@ -21,11 +21,15 @@ class MainActivity : ComponentActivity() {
         CoroutineScope(Dispatchers.IO).launch {
             runCatching {
                 val app = GmuApplication.deps(this@MainActivity)
-                val sems = app.cache.loadCachedSemesters()
+                // 默认学期取「磁盘上确实有课」的最新学期：升级残留的空学期缓存
+                // （如 2026_12.json 零课程）不能顶到首位，否则每次启动都停在没课的第二学期
+                val sems = app.cache.loadCachedSemestersWithData()
+                    .ifEmpty { app.cache.loadCachedSemesters() }
                 if (sems.isNotEmpty()) {
+                    val first = sems.first()
                     SchedulePageCache.semestersState.value = sems
-                    SchedulePageCache.selectedState.value = sems.first()
-                    app.cache.load(sems.first())?.let { c ->
+                    SchedulePageCache.selectedState.value = first
+                    app.cache.load(first)?.let { c ->
                         SchedulePageCache.coursesState.value = c.result.courses
                         SchedulePageCache.studentNameState.value = c.result.studentName
                         SchedulePageCache.weekDatesState.value = c.weekDates

@@ -355,7 +355,8 @@ fun ScheduleScreen(
      * 联网一律交给 [com.gzmtuview.ui.sync.DailySync]，页面不再自己发请求。
      */
     suspend fun hydrateFromCache(): Boolean {
-        val sems = app.cache.loadCachedSemesters()
+        val sems = app.cache.loadCachedSemestersWithData()
+            .ifEmpty { app.cache.loadCachedSemesters() }
         if (sems.isEmpty()) return false
         semesters = sems
         val sem = selected ?: sems.first().also { selected = it }

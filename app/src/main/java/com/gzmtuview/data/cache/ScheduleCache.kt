@@ -169,6 +169,20 @@ class ScheduleCache(private val context: Context) {
         }
     }
 
+    /**
+     * 冷启动展示用的学期列表：只保留磁盘上确实有数据的学期
+     * （课表有课程，或考试/成绩非空）。
+     * 0.1.4 升级问题在 2026_12.json 留下过空课表，若只按文件是否存在取列表，
+     * 它会永远按时间倒序排在首位，每次启动都停在没课的第二学期。
+     */
+    suspend fun loadCachedSemestersWithData(): List<Semester> = withContext(Dispatchers.IO) {
+        loadCachedSemesters().filter { s ->
+            load(s)?.result?.courses?.isNotEmpty() == true ||
+                loadExams(s)?.items?.isNotEmpty() == true ||
+                loadGrades(s)?.items?.isNotEmpty() == true
+        }
+    }
+
     // ---- 考试 / 成绩缓存（每学期独立文件） ----
 
     // 前缀带 _pc：手机版考试模块下线前的 exams_*.json（含当天空结果）一律不再命中，

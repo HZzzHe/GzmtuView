@@ -43,7 +43,9 @@ class SettingsStore(private val context: Context) : CredentialStore, SemesterCac
 
     // ---- DataStore 键 ----
     private object K {
-        val validSemesters = stringPreferencesKey("valid_semesters")
+        // v2：0.1.4 在 PC 探测失败时把「规则候选」当有效学期写进缓存，首位是尚未开课的
+        // 第二学期，升级后会连续 3 天被这份脏列表挡住。换键让它一次性失效、重新探测。
+        val validSemesters = stringPreferencesKey("valid_semesters_v2")
         val baseUrl = stringPreferencesKey("zf_base_url")
         val courseColorMap = stringPreferencesKey("course_color_map")
         val showStudentName = booleanPreferencesKey("show_student_name")

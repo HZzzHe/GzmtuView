@@ -718,7 +718,8 @@ private data class CollectSummary(
 
 /** 完整收录写盘后立即刷新课表/考试页的学期列表，免得用户重启才看到新收录的学期。 */
 private suspend fun refreshSemesterListsFromDisk(app: GmuApplication) {
-    val cached = app.cache.loadCachedSemesters()
+    val cached = app.cache.loadCachedSemestersWithData()
+        .ifEmpty { app.cache.loadCachedSemesters() }
     if (cached.isEmpty()) return
     val merged = (cached + listOfNotNull(SchedulePageCache.selectedState.value))
         .distinct()

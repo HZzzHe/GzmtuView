@@ -144,8 +144,12 @@ class ZFClient(
     @Volatile
     private var pcScheduleUnavailable = false
 
-    /** 本次进程课表是否已落到手机版备用通道（用于提示学期列表可能不完整）。 */
-    val isScheduleFallbackActive: Boolean get() = pcScheduleUnavailable
+    /** 本次进程的学期列表由手机版时间表页兜底（探测拿不到任何有课学期时）。 */
+    @Volatile
+    private var semesterListFromMobile = false
+
+    /** 本次进程课表是否已落到手机版备用通道（用于合并磁盘学期、提示列表可能不完整）。 */
+    val isScheduleFallbackActive: Boolean get() = pcScheduleUnavailable || semesterListFromMobile
 
     /** 按「优先使用 https」偏好规范化协议前缀。 */
     private fun normalizeScheme(url: String, preferHttps: Boolean): String {
@@ -341,42 +345,48 @@ class ZFClient(
         // PC 课表接口已确认不可用：把每个候选都探测一遍只会逐个等超时。
         // 手机版时间表页的 xnm_hide/xqm_hide 就是教务当前学期，直接用它兜底。
         if (pcScheduleUnavailable) {
-            return@autoRelogin fallbackSemestersFromMobile(candidates)
+            return@autoRelogin fallbackSemestersFromMobile()
         }
 
         // 探测：保留有课程数据的学期（只走 PC，避免把候选放大成几十个手机版请求）
-        var valid = probeSemesters(candidates)
+        val valid = probeSemesters(candidates)
         if (pcScheduleUnavailable) {
             // 探测途中 PC 课表接口失联：保留已探到的，再补手机版当前学期，不写缓存（便于恢复后重探）
-            return@autoRelogin fallbackSemestersFromMobile(candidates, valid)
+            return@autoRelogin fallbackSemestersFromMobile(valid)
         }
         if (valid.isEmpty()) {
-            // 探测全部失败（网络波动等）：降级返回规则候选，避免空白
-            valid = candidates
-        } else {
-            // 窗口延伸：窗口内最早学年有数据 → 向前探测到入学年
-            val extended = probeEarlierYears(valid)
-            if (extended != null) valid = extended + valid
+            // 探测全没拿到课程（PC 返回空白页/网络波动）：用手机版时间表页的当前学期兜底。
+            // 绝不能把规则候选当有效学期返回或写缓存——候选按时间倒序，首位是尚未开课的
+            // 第二学期，0.1.4 升级用户每次启动都停在 2026-2027 第 2 学期就是这么来的。
+            return@autoRelogin fallbackSemestersFromMobile()
         }
+        // 窗口延伸：窗口内最早学年有数据 → 向前探测到入学年
+        val extended = probeEarlierYears(valid)
+        if (pcScheduleUnavailable) {
+            // 延伸途中失联：已探到的 + 手机版当前学期，不把残缺列表写进缓存
+            return@autoRelogin fallbackSemestersFromMobile((extended ?: emptyList()) + valid)
+        }
+        val all = if (extended != null) extended + valid else valid
 
         if (semesterCache != null) {
             try {
-                semesterCache.saveValidSemesters(valid)
+                semesterCache.saveValidSemesters(all)
             } catch (_: Exception) {
                 // 缓存失败不阻塞
             }
         }
-        valid
+        all
     }
 
     /**
      * PC 课表接口不可用时的学期兜底：已探到的 + 手机版时间表页标出的当前学期。
-     * 不写有效学期缓存：这条列表是降级结果，不能让它在接口恢复后继续挡住完整探测。
+     * 不写有效学期缓存：这是降级结果，不能让它在接口恢复后继续挡住完整探测。
+     * 手机版页面也解析不出当前学期时返回空列表，由调用方按「未获取到学期信息」处理。
      */
     private suspend fun fallbackSemestersFromMobile(
-        candidates: List<Semester>,
         known: List<Semester> = emptyList(),
     ): List<Semester> {
+        semesterListFromMobile = true
         val current = try {
             fetchMobileCurrentSemester()
         } catch (e: ZFException) {
@@ -384,7 +394,7 @@ class ZFClient(
             null
         }
         val list = (known + listOfNotNull(current)).distinct()
-        return if (list.isNotEmpty()) sortSemesters(list) else candidates
+        return if (list.isNotEmpty()) sortSemesters(list) else emptyList()
     }
 
     /** 从手机版时间表页读教务当前学期（页面隐藏域；不依赖 PC 课表接口）。 */

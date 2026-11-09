@@ -299,7 +299,10 @@ fun ExamsScreen(
      * 的门控仍按原逻辑走，避免挡住后面新取到的当前学期数据。
      */
     suspend fun hydrateCachedExamData() {
-        val sems = semesters.ifEmpty { app.cache.loadCachedSemesters() }
+        val sems = semesters.ifEmpty {
+            app.cache.loadCachedSemestersWithData()
+                .ifEmpty { app.cache.loadCachedSemesters() }
+        }
         if (sems.isEmpty()) return
         semesters = sems
         if (picked == null) picked = sems.first()
@@ -390,7 +393,10 @@ fun ExamsScreen(
         }
         // 学期列表：优先用每日同步已拿到的，其次磁盘缓存学期，最后才联网
         val sems = semesters
-            .ifEmpty { app.cache.loadCachedSemesters() }
+            .ifEmpty {
+                app.cache.loadCachedSemestersWithData()
+                    .ifEmpty { app.cache.loadCachedSemesters() }
+            }
             .ifEmpty { runCatching { app.client.fetchSemesters() }.getOrDefault(emptyList()) }
         if (sems.isEmpty()) {
             examLoading = false
