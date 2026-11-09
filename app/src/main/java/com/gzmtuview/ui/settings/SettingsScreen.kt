@@ -64,7 +64,7 @@ import com.gzmtuview.ui.update.UpdateCenter
 import com.gzmtuview.ui.wallpaper.Wallpaper
 
 /** 版本号（与原生工程发布版本一致）。 */
-const val kAppVersion = "v0.1.4"
+const val kAppVersion = "v0.1.5"
 
 /**
  * 页面基色（对照第三方设置页截图）：浅色为中性灰、深色为深灰，

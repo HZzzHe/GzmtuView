@@ -197,7 +197,7 @@ fun FeatureDisplayScreen(
                 GroupDivider()
                 ToggleRow(
                     title = "优先使用 https 通道",
-                    subtitle = "关闭后优先使用 http 通道，连接失败时自动降级到 https（需重启生效）",
+                    subtitle = "关闭后优先使用 http 通道，连接失败时自动改用 https（需重启生效）",
                     value = preferHttps,
                     loaded = loaded,
                     backdropColor = switchBackdrop,

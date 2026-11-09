@@ -170,6 +170,8 @@ internal object SchedulePageCache {
     val loadingState = mutableStateOf(true)
     /** 全屏错误态文案（无缓存可展示时由每日同步写入；有缓存时错误只体现在底栏芯片上） */
     val errorState = mutableStateOf<String?>(null)
+    /** PC 课表接口失联、备用通道只拿到当前学期：提示可完整收录（进程内只弹一次） */
+    val fallbackNoticeState = mutableStateOf(false)
 
     /** 登出时清空（下个会话重新加载） */
     fun reset() {
@@ -180,6 +182,7 @@ internal object SchedulePageCache {
         weekDatesState.value = null
         courseColorIndexState.value = null
         errorState.value = null
+        fallbackNoticeState.value = false
         loadedState.value = false
         loadingState.value = true
     }
@@ -232,6 +235,7 @@ fun ScheduleScreen(
     var exportResult by remember { mutableStateOf<CsvExportResult?>(null) }
     // 每日同步的变化清单：进程级状态，切页/返回后仍会提示一次，直到用户确认
     val pendingChanges = DailySync.changed.value
+    val fallbackNotice by SchedulePageCache.fallbackNoticeState
 
     val weekCount = weekDates?.weekCount ?: 20
     val pagerState = rememberPagerState(pageCount = { weekCount + 1 }, initialPage = 1)
@@ -559,6 +563,21 @@ fun ScheduleScreen(
             onConfirm = { DailySync.changed.value = emptyList() },
             dismissText = null,
             onDismiss = { DailySync.changed.value = emptyList() },
+        )
+        // 备用通道只拿到当前学期：提示可完整收录补齐历史学期（等课表加载完再弹，不挡加载态）
+        GlassDialog(
+            visible = fallbackNotice && !loading,
+            onDismissRequest = { SchedulePageCache.fallbackNoticeState.value = false },
+            title = "学期列表不完整",
+            textString = "教务 PC 课表接口暂不可用，已改用手机版备用通道，目前只能获取当前学期。" +
+                "完整收录可补齐其他学期的课程、考试与成绩。",
+            confirmText = "去完整收录",
+            onConfirm = {
+                SchedulePageCache.fallbackNoticeState.value = false
+                onNavigate(4)
+            },
+            dismissText = "知道了",
+            onDismiss = { SchedulePageCache.fallbackNoticeState.value = false },
         )
         // 「同步失败」芯片点开：说清楚现在看到的是缓存，并按需再跑一次
         // （原顶部离线横幅的文案搬进这里，横幅本身已取消——与芯片重复提示）

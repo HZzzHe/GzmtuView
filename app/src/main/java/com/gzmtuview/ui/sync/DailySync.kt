@@ -124,7 +124,7 @@ object DailySync {
     }
 
     private suspend fun run(app: GmuApplication, cachedFirst: Semester?, today: LocalDate) {
-        val sems = try {
+        var sems = try {
             app.client.fetchSemesters()
         } catch (e: Exception) {
             // 只补考试/成绩的后台趟次不因为学期接口抖动亮红芯片；课表本身要取时才算真失败
@@ -136,9 +136,21 @@ object DailySync {
             else phase.value = SyncPhase.Idle
             return
         }
+        if (app.client.isScheduleFallbackActive) {
+            // 备用通道只返回当前学期：把磁盘里已有课表的学期合回来，
+            // 否则次日同步又会把完整收录出来的学期列表缩成一个。
+            val onDisk = app.cache.loadCachedSemesters().filter { cachedSem ->
+                app.cache.load(cachedSem)?.result?.courses?.isNotEmpty() == true
+            }
+            sems = app.client.sortSemesters((sems + onDisk).distinct())
+        }
         val sem = sems.first()
         SchedulePageCache.semestersState.value = sems
         ExamPageCache.semestersState.value = sems
+        // 备用通道只拿得到当前学期：提醒用户可以完整收录补齐历史学期
+        if (app.client.isScheduleFallbackActive && sems.size == 1) {
+            SchedulePageCache.fallbackNoticeState.value = true
+        }
         // 用户没手动换过学期（还停在缓存里那个）才跟随网络返回的当前学期，
         // 否则同步结束不该把他正在看的学期拽走
         val shown = SchedulePageCache.selectedState.value

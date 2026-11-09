@@ -159,7 +159,8 @@ class ScheduleCache(private val context: Context) {
             dir().listFiles()?.forEach { f ->
                 val m = re.find(f.name)
                 if (m != null) {
-                    sems.add(Semester(xnm = m.groupValues[1], xqm = m.groupValues[2]))
+                    val sem = Semester(xnm = m.groupValues[1], xqm = m.groupValues[2])
+                    if (sem.isStandard) sems.add(sem)
                 }
             }
             sems.toList()

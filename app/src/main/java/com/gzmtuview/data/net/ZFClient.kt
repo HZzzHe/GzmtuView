@@ -114,11 +114,11 @@ class ZFClient(
         }
     }
 
-    /** 教务系统地址（当前协议；连接失败自动降级到相反协议后更新）。 */
+    /** 教务系统地址（当前协议；仅从 http 单向升级到 https）。 */
     private var baseUrl: String = normalizeScheme(baseUrlOverride ?: DEFAULT_BASE_URL, preferHttps)
 
-    /** 已降级到相反协议（本次会话内不再重复降级；重启后按开关重新尝试）。 */
-    private var schemeDowngraded = false
+    /** 已从 http 单向升级到 https；https 失败不会再退回明文。 */
+    private var upgradedToHttps = false
 
     val jar: MemCookieJar get() = cookieJar
 
@@ -135,6 +135,18 @@ class ZFClient(
         .protocols(listOf(okhttp3.Protocol.HTTP_1_1))
         .build()
 
+    /** 课表 PC 接口专用短超时：该接口卡死时尽快降级手机版，别让用户等满 10 秒。 */
+    private val scheduleClient: OkHttpClient by lazy {
+        client.newBuilder().readTimeout(5, TimeUnit.SECONDS).build()
+    }
+
+    /** 本次进程内 PC 课表接口已确认不可用（网络层失败）；后续直接走手机版逐周接口。 */
+    @Volatile
+    private var pcScheduleUnavailable = false
+
+    /** 本次进程课表是否已落到手机版备用通道（用于提示学期列表可能不完整）。 */
+    val isScheduleFallbackActive: Boolean get() = pcScheduleUnavailable
+
     /** 按「优先使用 https」偏好规范化协议前缀。 */
     private fun normalizeScheme(url: String, preferHttps: Boolean): String {
         val s = url.trim()
@@ -143,20 +155,23 @@ class ZFClient(
         return (if (preferHttps) "https" else "http") + "://" + rest
     }
 
-    private fun switchScheme() {
-        val rest = baseUrl.removePrefix("https://").removePrefix("http://")
-        val newScheme = if (baseUrl.startsWith("https://")) "http" else "https"
-        baseUrl = "$newScheme://$rest"
+    /** 仅允许 http → https 的单向升级（系统禁止明文或 http 连接失败时使用）。 */
+    private fun upgradeToHttps() {
+        baseUrl = "https://" + baseUrl.removePrefix("https://").removePrefix("http://")
     }
 
     private fun isConnError(e: IOException): Boolean =
         e is ConnectException || e is SocketTimeoutException || e is UnknownHostException
 
-    /** 发请求（带协议降级重试）。form 非空时 POST，否则 GET。 */
+    private fun isCleartextBlocked(e: IOException): Boolean =
+        e.message?.contains("CLEARTEXT", ignoreCase = true) == true
+
+    /** 发请求（http 失败或被系统禁止明文时单向升级到 https）。form 非空时 POST，否则 GET。 */
     private suspend fun request(
         path: String,
         query: Map<String, String> = emptyMap(),
         form: Map<String, String>? = null,
+        shortTimeout: Boolean = false,
     ): String = withContext(Dispatchers.IO) {
         // 开源版地址是占位值：任何一次请求都先给出可行动提示，
         // 别让人等 5s 连接超时看一句「网络错误」猜原因。
@@ -168,13 +183,17 @@ class ZFClient(
         var result: String? = null
         while (true) {
             try {
-                result = doRequest(path, query, form)
+                result = doRequest(path, query, form, shortTimeout)
                 break
             } catch (e: IOException) {
-                if (!schemeDowngraded && isConnError(e)) {
-                    schemeDowngraded = true
-                    switchScheme()
-                    continue // 降级后重试一次
+                // 只允许 http → https：https 失败绝不降级为明文，
+                // 否则一次网络抖动会让整个会话落到 HTTP，被系统明文策略全部拦截。
+                if (!upgradedToHttps && baseUrl.startsWith("http://") &&
+                    (isCleartextBlocked(e) || isConnError(e))
+                ) {
+                    upgradedToHttps = true
+                    upgradeToHttps()
+                    continue // 升级后重试一次
                 }
                 throw e
             }
@@ -182,7 +201,12 @@ class ZFClient(
         result!!
     }
 
-    private fun doRequest(path: String, query: Map<String, String>, form: Map<String, String>?): String {
+    private fun doRequest(
+        path: String,
+        query: Map<String, String>,
+        form: Map<String, String>?,
+        shortTimeout: Boolean,
+    ): String {
         val urlSb = StringBuilder(baseUrl).append(path)
         if (query.isNotEmpty()) {
             urlSb.append(if (path.contains('?')) '&' else '?')
@@ -211,7 +235,8 @@ class ZFClient(
         } else {
             builder.get()
         }
-        client.newCall(builder.build()).execute().use { resp ->
+        val http = if (shortTimeout) scheduleClient else client
+        http.newCall(builder.build()).execute().use { resp ->
             val body = resp.body?.string() ?: ""
             return body
         }
@@ -313,8 +338,18 @@ class ZFClient(
             throw ZFException("未能解析学期列表，教务系统可能已改版")
         }
 
-        // 探测：保留有课程数据的学期
+        // PC 课表接口已确认不可用：把每个候选都探测一遍只会逐个等超时。
+        // 手机版时间表页的 xnm_hide/xqm_hide 就是教务当前学期，直接用它兜底。
+        if (pcScheduleUnavailable) {
+            return@autoRelogin fallbackSemestersFromMobile(candidates)
+        }
+
+        // 探测：保留有课程数据的学期（只走 PC，避免把候选放大成几十个手机版请求）
         var valid = probeSemesters(candidates)
+        if (pcScheduleUnavailable) {
+            // 探测途中 PC 课表接口失联：保留已探到的，再补手机版当前学期，不写缓存（便于恢复后重探）
+            return@autoRelogin fallbackSemestersFromMobile(candidates, valid)
+        }
         if (valid.isEmpty()) {
             // 探测全部失败（网络波动等）：降级返回规则候选，避免空白
             valid = candidates
@@ -334,6 +369,37 @@ class ZFClient(
         valid
     }
 
+    /**
+     * PC 课表接口不可用时的学期兜底：已探到的 + 手机版时间表页标出的当前学期。
+     * 不写有效学期缓存：这条列表是降级结果，不能让它在接口恢复后继续挡住完整探测。
+     */
+    private suspend fun fallbackSemestersFromMobile(
+        candidates: List<Semester>,
+        known: List<Semester> = emptyList(),
+    ): List<Semester> {
+        val current = try {
+            fetchMobileCurrentSemester()
+        } catch (e: ZFException) {
+            if (e.sessionExpired) throw e
+            null
+        }
+        val list = (known + listOfNotNull(current)).distinct()
+        return if (list.isNotEmpty()) sortSemesters(list) else candidates
+    }
+
+    /** 从手机版时间表页读教务当前学期（页面隐藏域；不依赖 PC 课表接口）。 */
+    private suspend fun fetchMobileCurrentSemester(): Semester? {
+        val html = request("$PATH_PREFIX/kbcx/xskbcxMobile_cxTimeTableIndex.html")
+        if (html.contains("login_slogin")) {
+            throw ZFException("登录已过期，请重新登录", sessionExpired = true)
+        }
+        val xnm = Regex("""id="xnm_hide"\s+value="(\d+)"""")
+            .find(html)?.groupValues?.get(1) ?: return null
+        val xqm = Regex("""id="xqm_hide"\s+value="(\d+)"""")
+            .find(html)?.groupValues?.get(1) ?: return null
+        return Semester(xnm = xnm, xqm = xqm).takeIf { it.isStandard }
+    }
+
     /** 解析索引页并生成规则过滤后的候选学期列表。 */
     private suspend fun fetchSemesterCandidates(): List<Semester> {
         val html = request(
@@ -344,8 +410,7 @@ class ZFClient(
             throw ZFException("登录已过期，请重新登录", sessionExpired = true)
         }
         val xnmValues = parseSelect(html, "xnm").map { it.value }
-        val xqmValues = parseSelect(html, "xqm").map { it.value }
-        return buildSemesterCandidates(xnmValues, xqmValues, LocalDate.now().year)
+        return buildSemesterCandidates(xnmValues, LocalDate.now().year)
     }
 
     /** 获取全部学年（原始 xnm 值列表，已过滤占位符），用于会话轻量检查。 */
@@ -360,10 +425,9 @@ class ZFClient(
         parseSelect(html, "xnm").map { it.value }.filter { (it.toIntOrNull() ?: 0) > 0 }
     }
 
-    /** 生成候选学期列表（纯函数）。 */
+    /** 生成候选学期列表（纯函数）。教务下拉会带出预留的第3学期（xqm=16），候选只保留标准学期。 */
     fun buildSemesterCandidates(
         xnmValues: List<String>,
-        xqmValues: List<String>,
         currentYear: Int,
     ): List<Semester> {
         val years = sortedSetOf<Int>()
@@ -371,12 +435,8 @@ class ZFClient(
             val y = v.toIntOrNull()
             if (y != null && y >= currentYear - YEAR_WINDOW && y <= currentYear) years.add(y)
         }
-        val xqms = DEFAULT_XQMS.toMutableSet()
-        for (v in xqmValues) {
-            if (v.toIntOrNull() != null) xqms.add(v)
-        }
         val list = mutableListOf<Semester>()
-        for (y in years) for (q in xqms) list.add(Semester(xnm = y.toString(), xqm = q))
+        for (y in years) for (q in DEFAULT_XQMS) list.add(Semester(xnm = y.toString(), xqm = q))
         return sortSemesters(list)
     }
 
@@ -389,10 +449,12 @@ class ZFClient(
         val valid = mutableListOf<Semester>()
         val batchSize = 4
         var i = 0
-        while (i < candidates.size) {
+        while (i < candidates.size && !pcScheduleUnavailable) {
             val batch = candidates.subList(i, minOf(i + batchSize, candidates.size))
             // 顺序探测（保持简单可靠）；Flutter 版为并发，结果一致
             for (s in batch) {
+                // PC 课表接口刚失联：继续探测只会逐个等超时，交给手机版当前学期兜底
+                if (pcScheduleUnavailable) return valid
                 val count = probeScheduleCount(s)
                 if (count != null && count > 0) valid.add(s)
             }
@@ -413,7 +475,7 @@ class ZFClient(
         val extended = mutableListOf<Semester>()
         var emptyRun = 0
         var year = minYear - 1
-        while (year >= 2000 && emptyRun < 2) {
+        while (year >= 2000 && emptyRun < 2 && !pcScheduleUnavailable) {
             val s1 = Semester(xnm = year.toString(), xqm = "3")
             val s2 = Semester(xnm = year.toString(), xqm = "12")
             val c1 = probeScheduleCount(s1)
@@ -430,9 +492,18 @@ class ZFClient(
         return if (extended.isEmpty()) null else extended.reversed()
     }
 
-    /** 探测学期有效性：返回该学期课表课程数；无效学期返回 null。 */
-    suspend fun probeScheduleCount(semester: Semester): Int? = try {
-        fetchSchedule(semester).courses.size
+    /**
+     * 探测学期有效性：返回该学期课表课程数；无效学期返回 null。
+     * 只走 PC 接口——探测不能触发手机版逐周降级，否则每个候选都会变成 20 个请求。
+     */
+    private suspend fun probeScheduleCount(semester: Semester): Int? = try {
+        fetchSchedulePc(semester).courses.size
+    } catch (e: ZFException) {
+        if (e.sessionExpired || e.authFailed) throw e
+        null
+    } catch (_: IOException) {
+        pcScheduleUnavailable = true
+        null
     } catch (_: Exception) {
         null
     }
@@ -488,12 +559,31 @@ class ZFClient(
         parseListResponse(body) { JSONObject(it.toString()) }.map { GradeRecord.fromJson(it) }
     }
 
-    /** 查询指定学期的个人课表。 */
+    /**
+     * 查询指定学期的个人课表。
+     * PC 课表接口优先；网络层失败时降级手机版逐周接口（当前教务 PC 接口长期超时的备用通道）。
+     */
     suspend fun fetchSchedule(semester: Semester): ScheduleResult = autoRelogin {
+        if (!pcScheduleUnavailable) {
+            try {
+                return@autoRelogin fetchSchedulePc(semester)
+            } catch (e: ZFException) {
+                if (e.sessionExpired || e.authFailed) throw e
+                // 异常页面/解析失败：本次先降级，但不熔断进程（可能只是单个学期的问题）
+            } catch (_: IOException) {
+                pcScheduleUnavailable = true
+            }
+        }
+        fetchScheduleMobile(semester)
+    }
+
+    /** PC 课表接口（一次返回整学期）。 */
+    private suspend fun fetchSchedulePc(semester: Semester): ScheduleResult {
         val body = request(
             "$PATH_PREFIX/kbcx/xskbcx_cxXsKb.html",
             query = mapOf("gnmkdm" to "N2151"),
             form = mapOf("xnm" to semester.xnm, "xqm" to semester.xqm, "kzlx" to "ck", "xsdm" to ""),
+            shortTimeout = true,
         )
         if (body.trimStart().startsWith("<")) {
             if (body.contains("login_slogin")) {
@@ -517,7 +607,84 @@ class ZFClient(
         val studentName = xsxx?.optString("XM", "") ?: ""
         val semesterLabel = xsxx?.optString("XQMMC", "")?.takeIf { it.isNotEmpty() } ?: semester.label
 
-        ScheduleResult(courses = courses, studentName = studentName, semesterLabel = semesterLabel)
+        return ScheduleResult(courses = courses, studentName = studentName, semesterLabel = semesterLabel)
+    }
+
+    /**
+     * 手机版逐周课表（PC 接口不可用时的备用通道）。
+     * 手机版时间表页只负责周次/日期；课程数据由 cxZc（周次表）和
+     * cxXsgrkb（按周返回 kbList）提供，字段与 PC 接口同构。
+     * 20 周串行约 8–9 秒，按 kch/jxb_id/xqj/jcs/zcd/cdmc 去重后合并。
+     */
+    private suspend fun fetchScheduleMobile(semester: Semester): ScheduleResult {
+        val zcBody = request(
+            "$PATH_PREFIX/kbcx/xskbcxMobile_cxZc.html",
+            form = mapOf("xnm" to semester.xnm, "xqm" to semester.xqm),
+        )
+        val weekCount = parseMobileWeekCount(zcBody)
+        val merged = LinkedHashMap<String, JSONObject>()
+        var xsxx: JSONObject? = null
+        for (week in 1..weekCount) {
+            val body = request(
+                "$PATH_PREFIX/kbcx/xskbcxMobile_cxXsgrkb.html",
+                form = mapOf(
+                    "xnm" to semester.xnm,
+                    "xqm" to semester.xqm,
+                    "doType" to "app",
+                    "kblx" to "1",
+                    "zs" to week.toString(),
+                ),
+            )
+            val json = parseMobileScheduleObject(body)
+            if (xsxx == null) xsxx = json.optJSONObject("xsxx")
+            val list = json.optJSONArray("kbList") ?: continue
+            for (i in 0 until list.length()) {
+                val course = list.optJSONObject(i) ?: continue
+                val key = listOf("kch", "jxb_id", "xqj", "jcs", "zcd", "cdmc")
+                    .joinToString("\u0001") { course.optString(it) }
+                if (!merged.containsKey(key)) merged[key] = course
+            }
+        }
+        val courses = merged.values.map { Course.fromJson(it) }
+        val studentName = xsxx?.optString("XM", "") ?: ""
+        val semesterLabel = xsxx?.optString("XQMMC", "")?.takeIf { it.isNotEmpty() } ?: semester.label
+        return ScheduleResult(courses = courses, studentName = studentName, semesterLabel = semesterLabel)
+    }
+
+    /** 手机版周次表：返回最大周次（1-based）。 */
+    private fun parseMobileWeekCount(body: String): Int {
+        if (body.trimStart().startsWith("<")) {
+            if (body.contains("login_slogin")) {
+                throw ZFException("登录已过期，请重新登录", sessionExpired = true)
+            }
+            throw ZFException("教务系统返回了异常页面")
+        }
+        val weeks = try {
+            JSONArray(body)
+        } catch (_: Exception) {
+            throw ZFException("课表周次数据解析失败")
+        }
+        var maxWeek = 0
+        for (i in 0 until weeks.length()) {
+            val zs = weeks.optJSONObject(i)?.optString("zs", "")?.toIntOrNull() ?: 0
+            if (zs > maxWeek) maxWeek = zs
+        }
+        if (maxWeek <= 0) throw ZFException("课表周次数据为空或格式异常")
+        return maxWeek
+    }
+
+    private fun parseMobileScheduleObject(body: String): JSONObject {
+        if (body.trimStart().startsWith("<")) {
+            if (body.contains("login_slogin")) {
+                throw ZFException("登录已过期，请重新登录", sessionExpired = true)
+            }
+            throw ZFException("教务系统返回了异常页面")
+        }
+        return try {
+            JSONObject(body)
+        } catch (_: Exception) {
+            throw ZFException("课表数据解析失败")
+        }
     }
 
     /** 退出登录并清除本地会话。 */

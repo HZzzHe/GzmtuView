@@ -58,6 +58,7 @@ import com.gzmtuview.data.color.kCoursePalette
 import com.gzmtuview.data.model.Course
 import com.gzmtuview.data.model.ExamRecord
 import com.gzmtuview.data.model.GradeRecord
+import com.gzmtuview.ui.exams.ExamPageCache
 import com.gzmtuview.data.model.Semester
 import com.gzmtuview.ui.ScreenScaffold
 import com.gzmtuview.ui.glass.FrostScrollPage
@@ -159,6 +160,8 @@ fun ScheduleSearchScreen(onBack: () -> Unit) {
         scope.launch {
             try {
                 val summary = collectAllData(app) { collectStatus = it }
+                // 新收录的学期已落盘：立即刷新课表/考试页的学期列表，无需重启
+                refreshSemesterListsFromDisk(app)
                 // 收录完成后按磁盘重建索引（当前学期也走新落盘的数据）
                 val currentSemester = SchedulePageCache.selectedState.value
                 val currentCourses = SchedulePageCache.coursesState.value
@@ -641,7 +644,7 @@ private suspend fun buildSearchIndex(
     currentSemester: Semester?,
     currentCourses: List<Course>,
 ): SearchIndex {
-    val semesters = (app.cache.loadCachedSemesters() + listOfNotNull(currentSemester))
+    val semesters = (app.cache.loadCachedSemesters() + listOfNotNull(currentSemester?.takeIf { it.isStandard }))
         .distinct()
         .sortedByDescending { it.rank }
     val courses = mutableListOf<CourseHit>()
@@ -713,6 +716,17 @@ private data class CollectSummary(
     val failures: Int,
 )
 
+/** 完整收录写盘后立即刷新课表/考试页的学期列表，免得用户重启才看到新收录的学期。 */
+private suspend fun refreshSemesterListsFromDisk(app: GmuApplication) {
+    val cached = app.cache.loadCachedSemesters()
+    if (cached.isEmpty()) return
+    val merged = (cached + listOfNotNull(SchedulePageCache.selectedState.value))
+        .distinct()
+    val sorted = app.client.sortSemesters(merged)
+    SchedulePageCache.semestersState.value = sorted
+    ExamPageCache.semestersState.value = sorted
+}
+
 /**
  * 完整收录：重新读取教务的学年列表，对每个候选学期拉取课程、考试、成绩并写入本地缓存。
  * 所有网络请求共用 [RequestPacer]，起点间隔 ≥200ms（每秒不超过 5 次）；
@@ -726,7 +740,7 @@ private suspend fun collectAllData(
     val pacer = RequestPacer()
     pacer.await()
     val years = app.client.fetchYearList()
-    val candidates = app.client.buildSemesterCandidates(years, emptyList(), LocalDate.now().year)
+    val candidates = app.client.buildSemesterCandidates(years, LocalDate.now().year)
     if (candidates.isEmpty()) throw IllegalStateException("未获取到学期列表")
 
     var semesters = 0

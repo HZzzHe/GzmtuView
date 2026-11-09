@@ -163,7 +163,8 @@ class SettingsStore(private val context: Context) : CredentialStore, SemesterCac
             val list = mutableListOf<Semester>()
             for (i in 0 until items.length()) {
                 val m = items.getJSONObject(i)
-                list.add(Semester(xnm = m.getString("xnm"), xqm = m.getString("xqm")))
+                val sem = Semester(xnm = m.getString("xnm"), xqm = m.getString("xqm"))
+                if (sem.isStandard) list.add(sem)
             }
             list
         } catch (_: Exception) {

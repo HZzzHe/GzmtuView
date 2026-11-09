@@ -16,6 +16,10 @@ data class Semester(val xnm: String, val xqm: String) {
     val label: String
         get() = "$yearRange $xqmc"
 
+    /** 仅第1/2学期。第3学期（16）是教务预留的短学期，不进入课表、考试与成绩。 */
+    val isStandard: Boolean
+        get() = xqm == "3" || xqm == "12"
+
     /** 学期时间序号（越大越新）：第 1 学期=0，第 2 学期=1，短学期=2。 */
     val rank: Int
         get() {
