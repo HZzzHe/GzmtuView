@@ -228,7 +228,7 @@ class GmuViewWidgetProvider : AppWidgetProvider() {
           }
           setViewVisibility(rowId(i + 1), View.VISIBLE)
         } else {
-          setViewVisibility(rowId(i + 1), View.GONE)
+          clearRow(this, i + 1)
         }
       }
     }
@@ -245,7 +245,7 @@ class GmuViewWidgetProvider : AppWidgetProvider() {
             SimpleDateFormat("M月d日 E", Locale.CHINA).format(now.time))
         setTextViewText(R.id.widget_empty, "小部件异常，请重新打开 App 同步")
         setViewVisibility(R.id.widget_empty, View.VISIBLE)
-        for (i in 1..MAX_COURSES) setViewVisibility(rowId(i), View.GONE)
+        for (i in 1..MAX_COURSES) clearRow(this, i)
       }
 
   /// 点击小部件 → 打开 App（不依赖 home_widget 的 LaunchIntent）。
@@ -315,7 +315,16 @@ class GmuViewWidgetProvider : AppWidgetProvider() {
         SimpleDateFormat("M月d日 E", Locale.CHINA).format(now.time) + dateSuffix)
     views.setTextViewText(R.id.widget_empty, text)
     views.setViewVisibility(R.id.widget_empty, View.VISIBLE)
-    for (i in 1..MAX_COURSES) views.setViewVisibility(rowId(i), View.GONE)
+    for (i in 1..MAX_COURSES) clearRow(views, i)
+  }
+
+  /// 清空并隐藏课程槽：宿主若没及时应用 GONE（回收/延迟），也不会残留上一门课的文字。
+  private fun clearRow(views: RemoteViews, slot: Int) {
+    views.setTextViewText(nameId(slot), "")
+    views.setTextViewText(locationId(slot), "")
+    views.setTextViewText(timeId(slot), "")
+    views.setInt(barId(slot), "setBackgroundResource", barResId(0))
+    views.setViewVisibility(rowId(slot), View.GONE)
   }
 
   /// 「不上了」标记集合（App 课表标记的课程，小部件不显示其当天安排）。
@@ -355,7 +364,20 @@ class GmuViewWidgetProvider : AppWidgetProvider() {
     }
     list.sortBy { it.optString("startTime", "") }
     val out = JSONArray()
-    for (i in 0 until minOf(list.size, MAX_COURSES)) out.put(list[i])
+    val seen = HashSet<String>()
+    for (c in list) {
+      if (out.length() >= MAX_COURSES) break
+      // 同一节课可能因多个周次段或重复条目在数据里出现多次；小部件不显示周次，
+      // 按「课名 + 星期 + 起始节 + 地点」去重，避免下一节课在第一节课结束后占满两行。
+      val key = listOf(
+        c.optString("name", ""),
+        c.optInt("dayOfWeek", -1).toString(),
+        c.optInt("startSection", -1).toString(),
+        c.optString("location", ""),
+      ).joinToString("\u0001")
+      if (!seen.add(key)) continue
+      out.put(c)
+    }
     return out
   }
 
